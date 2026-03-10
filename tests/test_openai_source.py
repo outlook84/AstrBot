@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from openai.types.responses.response import Response as OpenAIResponse
 
+import astrbot.core.message.components as Comp
 from astrbot.core.provider.sources.openai_source import ProviderOpenAIOfficial
 
 
@@ -273,6 +274,7 @@ def test_native_tools_force_responses_mode_and_override_function_tools():
         {
             "oa_native_web_search": True,
             "oa_native_code_interpreter": True,
+            "oa_native_image_generation": True,
         }
     )
     try:
@@ -296,6 +298,7 @@ def test_native_tools_force_responses_mode_and_override_function_tools():
         assert payload["tools"] == [
             {"type": "web_search"},
             {"type": "code_interpreter", "container": {"type": "auto"}},
+            {"type": "image_generation"},
         ]
     finally:
         asyncio.run(provider.terminate())
@@ -428,6 +431,115 @@ async def test_parse_responses_completion_handles_missing_input_token_details():
 
 
 @pytest.mark.asyncio
+async def test_parse_responses_completion_extracts_native_code_interpreter_calls():
+    provider = _make_provider({"use_responses_api": True})
+    try:
+        response = OpenAIResponse.model_validate(
+            {
+                "id": "resp_code_interpreter",
+                "object": "response",
+                "created_at": 1,
+                "model": "gpt-4.1-mini",
+                "output": [
+                    {
+                        "id": "ci_1",
+                        "type": "code_interpreter_call",
+                        "container_id": "container_1",
+                        "status": "completed",
+                        "code": "print('hello')",
+                        "outputs": [
+                            {"type": "logs", "logs": "hello\n"},
+                            {"type": "image", "url": "https://example.com/result.png"},
+                        ],
+                    },
+                    {
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Execution completed",
+                                "annotations": [],
+                            }
+                        ],
+                    },
+                ],
+                "parallel_tool_calls": False,
+                "tool_choice": "auto",
+                "tools": [],
+            }
+        )
+
+        parsed = await provider._parse_responses_completion(response, tools=None)
+
+        assert parsed.completion_text == "Execution completed"
+        assert len(parsed.native_tool_calls) == 1
+        native_call = parsed.native_tool_calls[0]
+        assert native_call["name"] == "openai_code_interpreter"
+        assert native_call["args"]["code"] == "print('hello')"
+        assert native_call["result"]["logs"] == ["hello\n"]
+        assert native_call["result"]["images"] == ["https://example.com/result.png"]
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
+async def test_parse_responses_completion_extracts_native_image_generation_calls():
+    provider = _make_provider({"use_responses_api": True})
+    try:
+        response = OpenAIResponse.model_validate(
+            {
+                "id": "resp_image_generation",
+                "object": "response",
+                "created_at": 1,
+                "model": "gpt-4.1-mini",
+                "output": [
+                    {
+                        "id": "img_1",
+                        "type": "image_generation_call",
+                        "status": "completed",
+                        "result": "aGVsbG8=",
+                    },
+                    {
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Generated image",
+                                "annotations": [],
+                            }
+                        ],
+                    },
+                ],
+                "parallel_tool_calls": False,
+                "tool_choice": "auto",
+                "tools": [],
+            }
+        )
+
+        parsed = await provider._parse_responses_completion(response, tools=None)
+
+        assert parsed.completion_text == "Generated image"
+        assert parsed.result_chain is not None
+        assert len(parsed.result_chain.chain) == 2
+        assert isinstance(parsed.result_chain.chain[0], Comp.Plain)
+        assert isinstance(parsed.result_chain.chain[1], Comp.Image)
+        assert parsed.result_chain.chain[1].file == "base64://aGVsbG8="
+        assert len(parsed.native_tool_calls) == 1
+        native_call = parsed.native_tool_calls[0]
+        assert native_call["name"] == "openai_image_generation"
+        assert native_call["result"]["status"] == "completed"
+        assert native_call["result"]["has_image"] is True
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
 async def test_query_stream_responses_yields_distinct_text_and_reasoning_chunks():
     provider = _make_provider({"use_responses_api": True})
 
@@ -506,6 +618,173 @@ async def test_query_stream_responses_yields_distinct_text_and_reasoning_chunks(
         assert chunks[1].reasoning_content == "thinking"
         assert chunks[2].is_chunk is False
         assert chunks[2].completion_text == "Hello"
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
+async def test_query_stream_responses_yields_native_code_interpreter_events():
+    provider = _make_provider({"use_responses_api": True})
+
+    class _FakeStream:
+        def __init__(self, events):
+            self._events = iter(events)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    final_response = OpenAIResponse.model_validate(
+        {
+            "id": "resp_stream_native_ci",
+            "object": "response",
+            "created_at": 1,
+            "model": "gpt-4.1-mini",
+            "output": [
+                {
+                    "id": "ci_1",
+                    "type": "code_interpreter_call",
+                    "container_id": "container_1",
+                    "status": "completed",
+                    "code": "print('hello')",
+                    "outputs": [
+                        {"type": "logs", "logs": "hello\n"},
+                    ],
+                }
+            ],
+            "parallel_tool_calls": False,
+            "tool_choice": "auto",
+            "tools": [],
+        }
+    )
+
+    events = [
+        SimpleNamespace(
+            type="response.code_interpreter_call.in_progress", item_id="ci_1"
+        ),
+        SimpleNamespace(
+            type="response.code_interpreter_call_code.done",
+            item_id="ci_1",
+            code="print('hello')",
+        ),
+        SimpleNamespace(
+            type="response.code_interpreter_call.interpreting", item_id="ci_1"
+        ),
+        SimpleNamespace(type="response.completed", response=final_response),
+    ]
+
+    async def _fake_create(**kwargs):
+        assert kwargs["stream"] is True
+        return _FakeStream(events)
+
+    provider.client.responses.create = _fake_create
+
+    try:
+        chunks = []
+        async for item in provider._query_stream_responses(
+            {
+                "model": "gpt-4.1-mini",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            tools=None,
+        ):
+            chunks.append(item)
+
+        assert len(chunks) == 4
+        assert chunks[0].result_chain is not None
+        assert chunks[0].result_chain.type == "tool_call"
+        assert chunks[1].result_chain is not None
+        assert chunks[1].result_chain.type == "tool_call"
+        assert chunks[2].result_chain is not None
+        assert chunks[2].result_chain.type == "tool_call_result"
+        assert chunks[3].is_chunk is False
+        assert chunks[3].streamed_native_tool_call_ids == ["ci_1"]
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
+async def test_query_stream_responses_suppresses_native_image_generation_status_events():
+    provider = _make_provider({"use_responses_api": True})
+
+    class _FakeStream:
+        def __init__(self, events):
+            self._events = iter(events)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    final_response = OpenAIResponse.model_validate(
+        {
+            "id": "resp_stream_native_img",
+            "object": "response",
+            "created_at": 1,
+            "model": "gpt-4.1-mini",
+            "output": [
+                {
+                    "id": "img_1",
+                    "type": "image_generation_call",
+                    "status": "completed",
+                    "result": "aGVsbG8=",
+                }
+            ],
+            "parallel_tool_calls": False,
+            "tool_choice": "auto",
+            "tools": [],
+        }
+    )
+
+    events = [
+        SimpleNamespace(
+            type="response.image_generation_call.in_progress",
+            item_id="img_1",
+        ),
+        SimpleNamespace(
+            type="response.image_generation_call.generating",
+            item_id="img_1",
+        ),
+        SimpleNamespace(
+            type="response.image_generation_call.partial_image",
+            item_id="img_1",
+            partial_image_b64="cGFydGlhbA==",
+        ),
+        SimpleNamespace(type="response.completed", response=final_response),
+    ]
+
+    async def _fake_create(**kwargs):
+        assert kwargs["stream"] is True
+        return _FakeStream(events)
+
+    provider.client.responses.create = _fake_create
+
+    try:
+        chunks = []
+        async for item in provider._query_stream_responses(
+            {
+                "model": "gpt-4.1-mini",
+                "messages": [{"role": "user", "content": "draw"}],
+            },
+            tools=None,
+        ):
+            chunks.append(item)
+
+        assert len(chunks) == 2
+        assert chunks[0].result_chain is not None
+        assert isinstance(chunks[0].result_chain.chain[0], Comp.Image)
+        assert chunks[0].result_chain.chain[0].file == "base64://cGFydGlhbA=="
+        assert chunks[1].is_chunk is False
+        assert chunks[1].streamed_native_tool_call_ids == []
     finally:
         await provider.terminate()
 

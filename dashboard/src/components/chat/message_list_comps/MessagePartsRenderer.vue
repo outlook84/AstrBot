@@ -60,6 +60,30 @@
             </template>
         </ToolCallItem>
 
+        <ToolCallItem v-else-if="renderPart.type === 'openai-native-code'" :is-dark="isDark" style="margin: 8px 0 4px;">
+            <template #label="{ expanded }">
+                <v-icon size="x-small">
+                    mdi-console-line
+                </v-icon>
+                <span class="ipython-label">{{ tm('actions.openAINativeCodeInterpreter') }}</span>
+                <span style="opacity: 0.6;">{{ renderPart.toolCall.finished_ts ?
+                    formatDuration(renderPart.toolCall.finished_ts -
+                        renderPart.toolCall.ts) : getElapsedTime(renderPart.toolCall.ts) }}</span>
+                <v-icon size="small" class="ipython-icon" :class="{ rotated: expanded }">
+                    mdi-chevron-right
+                </v-icon>
+            </template>
+            <template #details>
+                <OpenAINativeCodeInterpreterBlock
+                    :tool-call="renderPart.toolCall"
+                    :is-dark="isDark"
+                    :show-header="false"
+                    :force-expanded="true"
+                    @open-image-preview="emitOpenImage"
+                />
+            </template>
+        </ToolCallItem>
+
         <!-- Text (Markdown) -->
         <MarkdownRender
             v-else-if="renderPart.part.type === 'plain' && renderPart.part.text && renderPart.part.text.trim()"
@@ -118,6 +142,7 @@
 import { useI18n, useModuleI18n } from '@/i18n/composables';
 import { MarkdownRender } from 'markstream-vue';
 import IPythonToolBlock from './IPythonToolBlock.vue';
+import OpenAINativeCodeInterpreterBlock from './OpenAINativeCodeInterpreterBlock.vue';
 import ToolCallItem from './ToolCallItem.vue';
 
 const props = defineProps({
@@ -198,6 +223,10 @@ const isIPythonTool = (toolCall) => {
     return toolCall.name === 'astrbot_execute_ipython' || toolCall.name === 'astrbot_execute_python';
 };
 
+const isOpenAINativeCodeTool = (toolCall) => {
+    return toolCall.name === 'openai_code_interpreter';
+};
+
 const getRenderParts = (messageParts) => {
     if (!Array.isArray(messageParts)) return [];
     const rendered = [];
@@ -224,6 +253,16 @@ const getRenderParts = (messageParts) => {
                         type: 'ipython',
                         toolCall,
                         key: `ipython-${idx}-${tcIndex}`
+                    });
+                    return;
+                }
+
+                if (isOpenAINativeCodeTool(toolCall)) {
+                    flushPending(idx - 1);
+                    rendered.push({
+                        type: 'openai-native-code',
+                        toolCall,
+                        key: `openai-native-code-${idx}-${tcIndex}`
                     });
                     return;
                 }

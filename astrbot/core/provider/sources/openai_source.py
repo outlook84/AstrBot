@@ -4,6 +4,7 @@ import inspect
 import json
 import random
 import re
+import time
 from collections.abc import AsyncGenerator, Iterable
 from typing import Any
 
@@ -15,9 +16,15 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from openai.types.completion_usage import CompletionUsage
 from openai.types.responses.response import Response as OpenAIResponse
+from openai.types.responses.response_code_interpreter_tool_call import (
+    OutputImage,
+    OutputLogs,
+    ResponseCodeInterpreterToolCall,
+)
 from openai.types.responses.response_function_tool_call import (
     ResponseFunctionToolCall,
 )
+from openai.types.responses.response_output_item import ImageGenerationCall
 from openai.types.responses.response_output_message import ResponseOutputMessage
 from openai.types.responses.response_reasoning_item import ResponseReasoningItem
 from openai.types.responses.response_usage import ResponseUsage
@@ -239,6 +246,8 @@ class ProviderOpenAIOfficial(Provider):
             tool_list.append(
                 {"type": "code_interpreter", "container": {"type": "auto"}}
             )
+        if self._as_bool(self.provider_config.get("oa_native_image_generation", False)):
+            tool_list.append({"type": "image_generation"})
         return tool_list
 
     def _openai_native_tools_enabled(self) -> bool:
@@ -635,6 +644,7 @@ class ProviderOpenAIOfficial(Provider):
         )
 
         final_response: OpenAIResponse | None = None
+        streamed_native_tool_call_ids: set[str] = set()
 
         async for event in stream:
             if event.type == "response.output_text.delta":
@@ -650,13 +660,98 @@ class ProviderOpenAIOfficial(Provider):
                     reasoning_content=event.delta,
                     is_chunk=True,
                 )
+            elif event.type == "response.code_interpreter_call.in_progress":
+                item_id = str(event.item_id)
+                yield LLMResponse(
+                    "assistant",
+                    result_chain=MessageChain(
+                        type="tool_call",
+                        chain=[
+                            Comp.Json(
+                                data={
+                                    "id": item_id,
+                                    "name": "openai_code_interpreter",
+                                    "args": {},
+                                    "ts": time.time(),
+                                }
+                            )
+                        ],
+                    ),
+                    is_chunk=True,
+                )
+                streamed_native_tool_call_ids.add(item_id)
+            elif event.type == "response.code_interpreter_call_code.done":
+                item_id = str(event.item_id)
+                yield LLMResponse(
+                    "assistant",
+                    result_chain=MessageChain(
+                        type="tool_call",
+                        chain=[
+                            Comp.Json(
+                                data={
+                                    "id": item_id,
+                                    "name": "openai_code_interpreter",
+                                    "args": {"code": event.code},
+                                    "ts": time.time(),
+                                }
+                            )
+                        ],
+                    ),
+                    is_chunk=True,
+                )
+                streamed_native_tool_call_ids.add(item_id)
+            elif event.type == "response.code_interpreter_call.interpreting":
+                yield LLMResponse(
+                    "assistant",
+                    result_chain=MessageChain(
+                        type="tool_call_result",
+                        chain=[
+                            Comp.Json(
+                                data={
+                                    "id": str(event.item_id),
+                                    "result": json.dumps(
+                                        {"status": "interpreting"},
+                                        ensure_ascii=False,
+                                    ),
+                                    "ts": time.time(),
+                                    "final": False,
+                                }
+                            )
+                        ],
+                    ),
+                    is_chunk=True,
+                )
+            elif event.type == "response.image_generation_call.in_progress":
+                # Suppress internal image-generation status events from user-facing
+                # streaming output. The generated image itself is emitted separately.
+                continue
+            elif event.type == "response.image_generation_call.generating":
+                continue
+            elif event.type == "response.image_generation_call.partial_image":
+                yield LLMResponse(
+                    "assistant",
+                    result_chain=MessageChain(
+                        chain=[
+                            Comp.Image.fromBase64(
+                                str(event.partial_image_b64),
+                            )
+                        ]
+                    ),
+                    is_chunk=True,
+                )
             elif event.type == "response.completed":
                 final_response = event.response
 
         if final_response is None:
             raise Exception("Responses API 流式返回缺少 response.completed 事件。")
 
-        yield await self._parse_responses_completion(final_response, tools)
+        final_llm_response = await self._parse_responses_completion(
+            final_response, tools
+        )
+        final_llm_response.streamed_native_tool_call_ids = list(
+            streamed_native_tool_call_ids
+        )
+        yield final_llm_response
 
     def _extract_reasoning_content(
         self,
@@ -891,6 +986,8 @@ class ProviderOpenAIOfficial(Provider):
         tool_args: list[dict[str, Any]] = []
         tool_names: list[str] = []
         tool_ids: list[str] = []
+        native_tool_calls: list[dict[str, Any]] = []
+        generated_images: list[str] = []
 
         for item in response.output:
             if isinstance(item, ResponseOutputMessage):
@@ -916,10 +1013,52 @@ class ProviderOpenAIOfficial(Provider):
                 tool_args.append(args)
                 tool_names.append(item.name)
                 tool_ids.append(item.call_id)
+            elif isinstance(item, ResponseCodeInterpreterToolCall):
+                logs: list[str] = []
+                images: list[str] = []
+                for output in item.outputs or []:
+                    if isinstance(output, OutputLogs):
+                        logs.append(output.logs)
+                    elif isinstance(output, OutputImage):
+                        images.append(output.url)
+                native_tool_calls.append(
+                    {
+                        "id": item.id,
+                        "name": "openai_code_interpreter",
+                        "args": {
+                            "code": item.code or "",
+                            "container_id": item.container_id,
+                        },
+                        "result": {
+                            "status": item.status,
+                            "logs": logs,
+                            "images": images,
+                        },
+                    }
+                )
+            elif isinstance(item, ImageGenerationCall):
+                if item.result:
+                    generated_images.append(item.result)
+                native_tool_calls.append(
+                    {
+                        "id": item.id,
+                        "name": "openai_image_generation",
+                        "args": {},
+                        "result": {
+                            "status": item.status,
+                            "has_image": bool(item.result),
+                        },
+                    }
+                )
 
         completion_text = "".join(text_parts).strip()
+        chain = MessageChain()
         if completion_text:
-            llm_response.result_chain = MessageChain().message(completion_text)
+            chain.message(completion_text)
+        for image_base64 in generated_images:
+            chain.base64_image(image_base64)
+        if chain.chain:
+            llm_response.result_chain = chain
 
         llm_response.reasoning_content = "".join(reasoning_parts).strip()
 
@@ -928,6 +1067,7 @@ class ProviderOpenAIOfficial(Provider):
             llm_response.tools_call_args = tool_args
             llm_response.tools_call_name = tool_names
             llm_response.tools_call_ids = tool_ids
+        llm_response.native_tool_calls = native_tool_calls
 
         incomplete_reason = (
             response.incomplete_details.reason if response.incomplete_details else None
@@ -935,7 +1075,11 @@ class ProviderOpenAIOfficial(Provider):
         if incomplete_reason == "content_filter":
             raise Exception("API 返回的 response 由于内容安全过滤被拒绝(非 AstrBot)。")
 
-        if llm_response.completion_text is None and not llm_response.tools_call_args:
+        if (
+            llm_response.completion_text is None
+            and not llm_response.tools_call_args
+            and not llm_response.native_tool_calls
+        ):
             logger.error(f"API 返回的 response 无法解析：{response}。")
             raise Exception(f"API 返回的 response 无法解析：{response}。")
 

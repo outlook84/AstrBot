@@ -270,6 +270,10 @@ class LLMResponse:
     """Tool call IDs."""
     tools_call_extra_content: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Tool call extra content. tool_call_id -> extra_content dict"""
+    native_tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    """Provider-native tool call observations that should be displayed but not executed."""
+    streamed_native_tool_call_ids: list[str] = field(default_factory=list)
+    """Provider-native tool call IDs already emitted during streaming."""
     reasoning_content: str = ""
     """The reasoning content extracted from the LLM, if any."""
     reasoning_signature: str | None = None
@@ -300,6 +304,8 @@ class LLMResponse:
         tools_call_name: list[str] | None = None,
         tools_call_ids: list[str] | None = None,
         tools_call_extra_content: dict[str, dict[str, Any]] | None = None,
+        native_tool_calls: list[dict[str, Any]] | None = None,
+        streamed_native_tool_call_ids: list[str] | None = None,
         reasoning_content: str | None = None,
         reasoning_signature: str | None = None,
         raw_completion: ChatCompletion
@@ -331,6 +337,10 @@ class LLMResponse:
             tools_call_ids = []
         if tools_call_extra_content is None:
             tools_call_extra_content = {}
+        if native_tool_calls is None:
+            native_tool_calls = []
+        if streamed_native_tool_call_ids is None:
+            streamed_native_tool_call_ids = []
 
         self.role = role
         self.completion_text = completion_text
@@ -339,6 +349,8 @@ class LLMResponse:
         self.tools_call_name = tools_call_name
         self.tools_call_ids = tools_call_ids
         self.tools_call_extra_content = tools_call_extra_content
+        self.native_tool_calls = native_tool_calls
+        self.streamed_native_tool_call_ids = streamed_native_tool_call_ids
         self.reasoning_content = reasoning_content
         self.reasoning_signature = reasoning_signature
         self.raw_completion = raw_completion

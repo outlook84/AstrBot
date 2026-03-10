@@ -513,6 +513,11 @@ export function useMessages(
                             const existingIndex = lastPart.tool_calls!.findIndex((tc: ToolCall) => tc.id === toolCall.id);
                             if (existingIndex === -1) {
                                 lastPart.tool_calls!.push(toolCall);
+                            } else {
+                                lastPart.tool_calls![existingIndex] = {
+                                    ...lastPart.tool_calls![existingIndex],
+                                    ...toolCall
+                                };
                             }
                         } else {
                             messageObj!.message.push({
@@ -535,7 +540,9 @@ export function useMessages(
                                 const toolCall = part.tool_calls.find((tc: ToolCall) => tc.id === resultData.id);
                                 if (toolCall) {
                                     toolCall.result = resultData.result;
-                                    toolCall.finished_ts = resultData.ts;
+                                    if (resultData.final !== false) {
+                                        toolCall.finished_ts = resultData.ts;
+                                    }
                                     break;
                                 }
                             }

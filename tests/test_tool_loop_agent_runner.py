@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from unittest.mock import AsyncMock
@@ -293,6 +294,112 @@ async def test_normal_completion_without_max_step(
 
     # 验证工具仍然可用（没有被禁用）
     assert runner.req.func_tool is not None, "正常完成时工具不应该被禁用"
+
+
+def test_build_native_tool_call_responses():
+    runner = ToolLoopAgentRunner()
+    llm_resp = LLMResponse(
+        role="assistant",
+        completion_text="done",
+        native_tool_calls=[
+            {
+                "id": "ci_1",
+                "name": "openai_code_interpreter",
+                "args": {"code": "print('hello')", "container_id": "container_1"},
+                "result": {
+                    "status": "completed",
+                    "logs": ["hello\n"],
+                    "images": ["https://example.com/result.png"],
+                },
+            }
+        ],
+    )
+
+    responses = runner._build_native_tool_call_responses(llm_resp)
+
+    assert [response.type for response in responses] == [
+        "tool_call",
+        "tool_call_result",
+    ]
+    tool_call = responses[0].data["chain"].chain[0].data
+    assert tool_call["id"] == "ci_1"
+    assert tool_call["name"] == "openai_code_interpreter"
+    assert tool_call["args"]["code"] == "print('hello')"
+
+    tool_result = responses[1].data["chain"].chain[0].data
+    assert tool_result["id"] == "ci_1"
+    result_payload = json.loads(tool_result["result"])
+    assert result_payload["status"] == "completed"
+    assert result_payload["logs"] == ["hello\n"]
+
+
+def test_build_native_tool_call_responses_skips_duplicate_streamed_tool_call():
+    runner = ToolLoopAgentRunner()
+    llm_resp = LLMResponse(
+        role="assistant",
+        completion_text="done",
+        native_tool_calls=[
+            {
+                "id": "ci_1",
+                "name": "openai_code_interpreter",
+                "args": {"code": "print('hello')"},
+                "result": {"status": "completed", "logs": ["hello\n"]},
+            }
+        ],
+        streamed_native_tool_call_ids=["ci_1"],
+    )
+
+    responses = runner._build_native_tool_call_responses(llm_resp)
+
+    assert [response.type for response in responses] == ["tool_call_result"]
+    payload = responses[0].data["chain"].chain[0].data
+    assert payload["final"] is True
+
+
+def test_build_native_tool_call_responses_skips_successful_image_generation_status():
+    runner = ToolLoopAgentRunner()
+    llm_resp = LLMResponse(
+        role="assistant",
+        completion_text="done",
+        native_tool_calls=[
+            {
+                "id": "img_1",
+                "name": "openai_image_generation",
+                "args": {},
+                "result": {"status": "completed", "has_image": True},
+            }
+        ],
+    )
+
+    responses = runner._build_native_tool_call_responses(llm_resp)
+
+    assert responses == []
+
+
+def test_build_native_tool_call_responses_keeps_failed_image_generation_status():
+    runner = ToolLoopAgentRunner()
+    llm_resp = LLMResponse(
+        role="assistant",
+        completion_text="done",
+        native_tool_calls=[
+            {
+                "id": "img_1",
+                "name": "openai_image_generation",
+                "args": {},
+                "result": {"status": "failed", "has_image": False},
+            }
+        ],
+    )
+
+    responses = runner._build_native_tool_call_responses(llm_resp)
+
+    assert [response.type for response in responses] == [
+        "tool_call",
+        "tool_call_result",
+    ]
+    assert responses[0].data["chain"].chain[0].data["name"] == "openai_image_generation"
+    result_payload = json.loads(responses[1].data["chain"].chain[0].data["result"])
+    assert result_payload["status"] == "failed"
 
 
 @pytest.mark.asyncio

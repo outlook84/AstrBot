@@ -44,6 +44,14 @@ from ...follow_up import (
 )
 
 
+def _select_final_stream_result_chain(final_llm_resp: LLMResponse) -> list:
+    if final_llm_resp.result_chain and final_llm_resp.result_chain.chain:
+        return final_llm_resp.result_chain.chain
+    if final_llm_resp.completion_text:
+        return MessageChain().message(final_llm_resp.completion_text).chain
+    return MessageChain().chain
+
+
 class InternalAgentSubStage(Stage):
     async def initialize(self, ctx: PipelineContext) -> None:
         self.ctx = ctx
@@ -310,16 +318,9 @@ class InternalAgentSubStage(Stage):
                         yield
                         if agent_runner.done():
                             if final_llm_resp := agent_runner.get_final_llm_resp():
-                                if final_llm_resp.completion_text:
-                                    chain = (
-                                        MessageChain()
-                                        .message(final_llm_resp.completion_text)
-                                        .chain
-                                    )
-                                elif final_llm_resp.result_chain:
-                                    chain = final_llm_resp.result_chain.chain
-                                else:
-                                    chain = MessageChain().chain
+                                chain = _select_final_stream_result_chain(
+                                    final_llm_resp
+                                )
                                 event.set_result(
                                     MessageEventResult(
                                         chain=chain,

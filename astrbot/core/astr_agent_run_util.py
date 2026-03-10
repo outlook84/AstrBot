@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import time
 import traceback
@@ -87,6 +88,83 @@ def _build_tool_result_status_message(
     return status_msg
 
 
+def _parse_native_tool_result_payload(
+    msg_chain: MessageChain,
+) -> tuple[str | None, dict | None]:
+    result_data = _extract_chain_json_data(msg_chain)
+    if not isinstance(result_data, dict):
+        return None, None
+
+    tool_call_id = result_data.get("id")
+    tool_result = result_data.get("result")
+    payload: dict | None = None
+
+    if isinstance(tool_result, str):
+        try:
+            parsed = json.loads(tool_result)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            payload = parsed
+    elif isinstance(tool_result, dict):
+        payload = tool_result
+
+    return str(tool_call_id) if tool_call_id is not None else None, payload
+
+
+def _build_native_tool_result_display(
+    msg_chain: MessageChain,
+    tool_name_by_call_id: dict[str, str],
+) -> tuple[bool, MessageChain | None]:
+    tool_call_id, payload = _parse_native_tool_result_payload(msg_chain)
+    if not tool_call_id:
+        return False, None
+
+    tool_name = tool_name_by_call_id.pop(tool_call_id, "unknown")
+    if tool_name == "openai_image_generation":
+        if isinstance(payload, dict) and payload.get("has_image") is True:
+            # Let the final assistant result carry the generated image instead of
+            # emitting an extra status-only message for IM platforms.
+            return True, None
+        status = payload.get("status") if isinstance(payload, dict) else None
+        status_msg = "🔨 调用工具: openai_image_generation"
+        if isinstance(status, str) and status:
+            status_msg = f"{status_msg}\n📎 状态: {status}"
+        chain = MessageChain(type="tool_call_result").message(status_msg)
+        return True, chain
+
+    if tool_name != "openai_code_interpreter" or not isinstance(payload, dict):
+        return False, None
+
+    chain = MessageChain(type="tool_call_result")
+    status = payload.get("status")
+    logs = payload.get("logs")
+    images = payload.get("images")
+
+    summary_lines = ["🔨 调用工具: openai_code_interpreter"]
+    if isinstance(status, str) and status:
+        summary_lines.append(f"📎 状态: {status}")
+
+    if isinstance(logs, list):
+        log_text = "".join(item for item in logs if isinstance(item, str)).strip()
+    elif isinstance(logs, str):
+        log_text = logs.strip()
+    else:
+        log_text = ""
+
+    if log_text:
+        summary_lines.append(f"📄 日志摘要: {_truncate_tool_result(log_text, 200)}")
+
+    chain.message("\n".join(summary_lines))
+
+    if isinstance(images, list):
+        for image in images:
+            if isinstance(image, str) and image.startswith(("http://", "https://")):
+                chain.url_image(image)
+
+    return True, chain
+
+
 async def run_agent(
     agent_runner: AgentRunner,
     max_step: int = 30,
@@ -98,6 +176,7 @@ async def run_agent(
     step_idx = 0
     astr_event = agent_runner.run_context.context.event
     tool_name_by_call_id: dict[str, str] = {}
+    announced_native_tool_call_ids: set[str] = set()
     while step_idx < max_step + 1:
         step_idx += 1
 
@@ -156,6 +235,14 @@ async def run_agent(
                     if astr_event.get_platform_id() == "webchat":
                         await astr_event.send(msg_chain)
                     elif show_tool_use and show_tool_call_result:
+                        handled, native_chain = _build_native_tool_result_display(
+                            msg_chain,
+                            tool_name_by_call_id,
+                        )
+                        if handled:
+                            if native_chain and native_chain.chain:
+                                await astr_event.send(native_chain)
+                            continue
                         status_msg = _build_tool_result_status_message(
                             msg_chain, tool_name_by_call_id
                         )
@@ -179,6 +266,17 @@ async def run_agent(
                     if astr_event.get_platform_name() == "webchat":
                         await astr_event.send(resp.data["chain"])
                     elif show_tool_use:
+                        if isinstance(tool_info, dict):
+                            tool_call_id = tool_info.get("id")
+                            tool_name = tool_info.get("name")
+                            if (
+                                isinstance(tool_call_id, str)
+                                and isinstance(tool_name, str)
+                                and tool_name.startswith("openai_")
+                            ):
+                                if tool_call_id in announced_native_tool_call_ids:
+                                    continue
+                                announced_native_tool_call_ids.add(tool_call_id)
                         if show_tool_call_result and isinstance(tool_info, dict):
                             # Delay tool status notification until tool_call_result.
                             continue

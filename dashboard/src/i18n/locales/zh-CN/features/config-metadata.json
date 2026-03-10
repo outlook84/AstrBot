@@ -1083,6 +1083,10 @@
         "description": "启用 OpenAI 原生代码解释器（仅 Responses）",
         "hint": "仅通过 Responses API 生效。启用后将强制使用 /v1/responses，并使用 OpenAI 原生 code_interpreter 工具。chat.completions 不支持该原生工具；开启后 AstrBot 函数工具将被忽略。"
       },
+      "oa_native_image_generation": {
+        "description": "启用 OpenAI 原生图片生成（仅 Responses）",
+        "hint": "仅通过 Responses API 生效。启用后将强制使用 /v1/responses，并使用 OpenAI 原生 image_generation 工具。chat.completions 不支持该原生工具；开启后 AstrBot 函数工具将被忽略。"
+      },
       "custom_extra_body": {
         "description": "自定义请求体参数",
         "hint": "用于在请求时添加额外的参数，如 temperature、top_p、max_tokens 等。",

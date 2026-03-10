@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import json
 import sys
 import time
 import traceback
@@ -81,6 +82,60 @@ class FollowUpTicket:
 
 
 class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
+    def _build_native_tool_call_responses(
+        self, llm_resp: LLMResponse
+    ) -> list[AgentResponse]:
+        responses: list[AgentResponse] = []
+        for tool_call in llm_resp.native_tool_calls:
+            tool_call_id = str(tool_call.get("id", ""))
+            if not tool_call_id:
+                continue
+            tool_name = str(tool_call.get("name", "native_tool"))
+            tool_result = tool_call.get("result", {})
+            if (
+                tool_name == "openai_image_generation"
+                and isinstance(tool_result, dict)
+                and tool_result.get("has_image") is True
+            ):
+                continue
+            if tool_call_id not in llm_resp.streamed_native_tool_call_ids:
+                started_ts = time.time()
+                tool_info = {
+                    "id": tool_call_id,
+                    "name": tool_name,
+                    "args": tool_call.get("args", {}),
+                    "ts": started_ts,
+                }
+                responses.append(
+                    AgentResponse(
+                        type="tool_call",
+                        data=AgentResponseData(
+                            chain=MessageChain(
+                                type="tool_call",
+                                chain=[Json(data=tool_info)],
+                            )
+                        ),
+                    )
+                )
+            result_payload = {
+                "id": tool_call_id,
+                "result": json.dumps(tool_result, ensure_ascii=False),
+                "ts": time.time(),
+                "final": True,
+            }
+            responses.append(
+                AgentResponse(
+                    type="tool_call_result",
+                    data=AgentResponseData(
+                        chain=MessageChain(
+                            type="tool_call_result",
+                            chain=[Json(data=result_payload)],
+                        )
+                    ),
+                )
+            )
+        return responses
+
     def _get_persona_custom_error_message(self) -> str | None:
         """Read persona-level custom error message from event extras when available."""
         event = getattr(self.run_context.context, "event", None)
@@ -526,6 +581,8 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     chain=MessageChain().message(llm_resp.completion_text),
                 ),
             )
+        for response in self._build_native_tool_call_responses(llm_resp):
+            yield response
 
         # 如果有工具调用，还需处理工具调用
         if llm_resp.tools_call_name:

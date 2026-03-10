@@ -17,17 +17,6 @@ WEBHOOK_SUPPORTED_PLATFORMS = [
     "lark",
     "line",
 ]
-
-
-def _openai_compatible_provider_defaults() -> dict[str, Any]:
-    return {
-        "use_responses_api": False,
-        "oa_native_web_search": False,
-        "oa_native_code_interpreter": False,
-        "custom_headers": {},
-    }
-
-
 # 默认配置
 DEFAULT_CONFIG = {
     "config_version": 2,
@@ -1091,7 +1080,11 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.openai.com/v1",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "use_responses_api": False,
+                        "oa_native_web_search": False,
+                        "oa_native_code_interpreter": False,
+                        "oa_native_image_generation": False,
+                        "custom_headers": {},
                     },
                     "Google Gemini": {
                         "id": "google_gemini",
@@ -1137,7 +1130,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://api.moonshot.cn/v1",
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "xAI": {
                         "id": "xai",
@@ -1149,7 +1142,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.x.ai/v1",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                         "xai_native_search": False,
                     },
                     "DeepSeek": {
@@ -1162,7 +1155,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.deepseek.com/v1",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "Zhipu": {
                         "id": "zhipu",
@@ -1174,7 +1167,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://open.bigmodel.cn/api/paas/v4/",
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "AIHubMix": {
                         "id": "aihubmix",
@@ -1186,7 +1179,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://aihubmix.com/v1",
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "OpenRouter": {
                         "id": "openrouter",
@@ -1198,7 +1191,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://openrouter.ai/api/v1",
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "NVIDIA": {
                         "id": "nvidia",
@@ -1210,7 +1203,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://integrate.api.nvidia.com/v1",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "Azure OpenAI": {
                         "id": "azure_openai",
@@ -1223,7 +1216,11 @@ CONFIG_METADATA_2 = {
                         "api_base": "",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "use_responses_api": False,
+                        "oa_native_web_search": False,
+                        "oa_native_code_interpreter": False,
+                        "oa_native_image_generation": False,
+                        "custom_headers": {},
                     },
                     "Ollama": {
                         "id": "ollama",
@@ -1234,7 +1231,7 @@ CONFIG_METADATA_2 = {
                         "key": ["ollama"],  # ollama 的 key 默认是 ollama
                         "api_base": "http://127.0.0.1:11434/v1",
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "LM Studio": {
                         "id": "lm_studio",
@@ -1245,7 +1242,7 @@ CONFIG_METADATA_2 = {
                         "key": ["lmstudio"],
                         "api_base": "http://127.0.0.1:1234/v1",
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "Gemini_OpenAI_API": {
                         "id": "google_gemini_openai",
@@ -1257,7 +1254,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://generativelanguage.googleapis.com/v1beta/openai/",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "Groq": {
                         "id": "groq",
@@ -1269,7 +1266,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.groq.com/openai/v1",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "302.AI": {
                         "id": "302ai",
@@ -1281,7 +1278,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.302.ai/v1",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "SiliconFlow": {
                         "id": "siliconflow",
@@ -1293,7 +1290,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://api.siliconflow.cn/v1",
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "PPIO": {
                         "id": "ppio",
@@ -1305,7 +1302,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.ppinfra.com/v3/openai",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "TokenPony": {
                         "id": "tokenpony",
@@ -1317,7 +1314,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.tokenpony.cn/v1",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "Compshare": {
                         "id": "compshare",
@@ -1329,7 +1326,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.modelverse.cn/v1",
                         "timeout": 120,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "ModelScope": {
                         "id": "modelscope",
@@ -1341,7 +1338,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://api-inference.modelscope.cn/v1",
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
+                        "custom_headers": {},
                     },
                     "Dify": {
                         "id": "dify_app_default",
@@ -1418,7 +1415,6 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.fastgpt.in/api/v1",
                         "timeout": 60,
                         "proxy": "",
-                        **_openai_compatible_provider_defaults(),
                         "custom_extra_body": {},
                     },
                     "Whisper(API)": {
@@ -1780,6 +1776,12 @@ CONFIG_METADATA_2 = {
                         "description": "启用 OpenAI 原生代码解释器（仅 Responses）",
                         "type": "bool",
                         "hint": "仅通过 Responses API 生效。启用后将强制使用 /v1/responses，并使用 OpenAI 原生 code_interpreter 工具。chat.completions 不支持该原生工具；开启后 AstrBot 函数工具将被忽略。",
+                        "obvious_hint": True,
+                    },
+                    "oa_native_image_generation": {
+                        "description": "启用 OpenAI 原生图片生成（仅 Responses）",
+                        "type": "bool",
+                        "hint": "仅通过 Responses API 生效。启用后将强制使用 /v1/responses，并使用 OpenAI 原生 image_generation 工具。chat.completions 不支持该原生工具；开启后 AstrBot 函数工具将被忽略。",
                         "obvious_hint": True,
                     },
                     "custom_extra_body": {

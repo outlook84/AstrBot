@@ -51,10 +51,16 @@
     "providerConfig": "AI 配置",
     "toolsUsed": "已使用工具",
     "toolCallUsed": "已使用 {name} 工具",
-    "pythonCodeAnalysis": "已使用 Python 代码分析"
+    "pythonCodeAnalysis": "已使用 Python 代码分析",
+    "openAINativeCodeInterpreter": "已使用 OpenAI 原生代码解释器"
   },
   "ipython": {
     "output": "输出"
+  },
+  "nativeCodeInterpreter": {
+    "status": "状态",
+    "logs": "日志",
+    "images": "生成图片"
   },
   "conversation": {
     "newConversation": "新的聊天",

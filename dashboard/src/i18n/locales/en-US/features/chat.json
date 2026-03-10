@@ -51,10 +51,16 @@
     "providerConfig": "AI Configuration",
     "toolsUsed": "Tool Used",
     "toolCallUsed": "Used {name} tool",
-    "pythonCodeAnalysis": "Python Code Analysis Used"
+    "pythonCodeAnalysis": "Python Code Analysis Used",
+    "openAINativeCodeInterpreter": "OpenAI Native Code Interpreter Used"
   },
   "ipython": {
     "output": "Output"
+  },
+  "nativeCodeInterpreter": {
+    "status": "Status",
+    "logs": "Logs",
+    "images": "Generated Images"
   },
   "conversation": {
     "newConversation": "New Conversation",

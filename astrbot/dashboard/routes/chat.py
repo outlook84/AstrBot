@@ -25,6 +25,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.core.utils.datetime_utils import to_utc_isoformat
 
 from .route import Response, Route, RouteContext
+from .tool_call_accumulator import accumulate_tool_call_part
 
 
 @asynccontextmanager
@@ -398,27 +399,25 @@ class ChatRoute(Route):
                         if msg_type == "plain":
                             chain_type = result.get("chain_type")
                             if chain_type == "tool_call":
-                                tool_call = json.loads(result_text)
-                                tool_calls[tool_call.get("id")] = tool_call
-                                if accumulated_text:
+                                handled = accumulate_tool_call_part(
+                                    tool_calls,
+                                    accumulated_parts,
+                                    chain_type,
+                                    result_text,
+                                )
+                                if handled and accumulated_text:
                                     # 如果累积了文本，则先保存文本
                                     accumulated_parts.append(
                                         {"type": "plain", "text": accumulated_text}
                                     )
                                     accumulated_text = ""
                             elif chain_type == "tool_call_result":
-                                tcr = json.loads(result_text)
-                                tc_id = tcr.get("id")
-                                if tc_id in tool_calls:
-                                    tool_calls[tc_id]["result"] = tcr.get("result")
-                                    tool_calls[tc_id]["finished_ts"] = tcr.get("ts")
-                                    accumulated_parts.append(
-                                        {
-                                            "type": "tool_call",
-                                            "tool_calls": [tool_calls[tc_id]],
-                                        }
-                                    )
-                                    tool_calls.pop(tc_id, None)
+                                accumulate_tool_call_part(
+                                    tool_calls,
+                                    accumulated_parts,
+                                    chain_type,
+                                    result_text,
+                                )
                             elif chain_type == "reasoning":
                                 accumulated_reasoning += result_text
                             elif streaming:

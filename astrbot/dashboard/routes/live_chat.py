@@ -24,6 +24,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path, get_astrbot_t
 from astrbot.core.utils.datetime_utils import to_utc_isoformat
 
 from .route import Route, RouteContext
+from .tool_call_accumulator import accumulate_tool_call_part
 
 
 class LiveChatSession:
@@ -525,9 +526,13 @@ class LiveChatRoute(Route):
                 if msg_type == "plain":
                     if chain_type == "tool_call":
                         try:
-                            tool_call = json.loads(result_text)
-                            tool_calls[tool_call.get("id")] = tool_call
-                            if accumulated_text:
+                            handled = accumulate_tool_call_part(
+                                tool_calls,
+                                accumulated_parts,
+                                chain_type,
+                                result_text,
+                            )
+                            if handled and accumulated_text:
                                 accumulated_parts.append(
                                     {"type": "plain", "text": accumulated_text}
                                 )
@@ -536,18 +541,12 @@ class LiveChatRoute(Route):
                             pass
                     elif chain_type == "tool_call_result":
                         try:
-                            tcr = json.loads(result_text)
-                            tc_id = tcr.get("id")
-                            if tc_id in tool_calls:
-                                tool_calls[tc_id]["result"] = tcr.get("result")
-                                tool_calls[tc_id]["finished_ts"] = tcr.get("ts")
-                                accumulated_parts.append(
-                                    {
-                                        "type": "tool_call",
-                                        "tool_calls": [tool_calls[tc_id]],
-                                    }
-                                )
-                                tool_calls.pop(tc_id, None)
+                            accumulate_tool_call_part(
+                                tool_calls,
+                                accumulated_parts,
+                                chain_type,
+                                result_text,
+                            )
                         except Exception:
                             pass
                     elif chain_type == "reasoning":

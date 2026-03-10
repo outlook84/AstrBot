@@ -1080,6 +1080,10 @@
         "description": "Enable OpenAI native code interpreter (Responses only)",
         "hint": "Only works through the Responses API. When enabled, AstrBot forces /v1/responses and uses OpenAI's native code_interpreter tool. chat.completions does not support this native tool; AstrBot function tools are ignored when it is enabled."
       },
+      "oa_native_image_generation": {
+        "description": "Enable OpenAI native image generation (Responses only)",
+        "hint": "Only works through the Responses API. When enabled, AstrBot forces /v1/responses and uses OpenAI's native image_generation tool. chat.completions does not support this native tool; AstrBot function tools are ignored when it is enabled."
+      },
       "custom_extra_body": {
         "description": "Custom request body parameters",
         "hint": "Add extra parameters to requests, such as temperature, top_p, max_tokens, etc.",
