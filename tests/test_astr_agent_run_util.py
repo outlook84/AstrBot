@@ -214,3 +214,41 @@ async def test_run_agent_deduplicates_native_tool_call_status_messages():
     assert len(sent_texts) == 1
     assert "openai_code_interpreter" in sent_texts[0]
     assert len(yielded) == 2
+
+
+@pytest.mark.asyncio
+async def test_run_agent_streaming_keeps_final_image_components():
+    event = _FakeEvent()
+    responses = [
+        AgentResponse(
+            type="streaming_delta",
+            data=AgentResponseData(chain=MessageChain().message("Generated image")),
+        ),
+        AgentResponse(
+            type="llm_result",
+            data=AgentResponseData(
+                chain=MessageChain(
+                    chain=[
+                        Comp.Plain("Generated image"),
+                        Comp.Image.fromBase64("aGVsbG8="),
+                    ]
+                )
+            ),
+        ),
+    ]
+    runner = _FakeAgentRunner(event, responses)
+
+    yielded = []
+    async for item in run_agent(
+        runner,
+        max_step=1,
+        show_tool_use=True,
+        show_tool_call_result=False,
+    ):
+        yielded.append(item)
+
+    assert len(yielded) == 2
+    assert isinstance(yielded[0].chain[0], Comp.Plain)
+    assert len(yielded[1].chain) == 1
+    assert isinstance(yielded[1].chain[0], Comp.Image)
+    assert yielded[1].chain[0].file == "base64://aGVsbG8="

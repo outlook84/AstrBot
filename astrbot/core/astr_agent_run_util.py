@@ -165,6 +165,24 @@ def _build_native_tool_result_display(
     return True, chain
 
 
+def _build_streaming_final_result_chain(
+    msg_chain: MessageChain,
+    *,
+    had_streaming_delta: bool,
+) -> MessageChain | None:
+    if not msg_chain.chain:
+        return None
+    if not had_streaming_delta:
+        return msg_chain
+
+    remaining_components = [
+        comp for comp in msg_chain.chain if not isinstance(comp, Plain)
+    ]
+    if not remaining_components:
+        return None
+    return MessageChain(type=msg_chain.type, chain=remaining_components)
+
+
 async def run_agent(
     agent_runner: AgentRunner,
     max_step: int = 30,
@@ -177,6 +195,7 @@ async def run_agent(
     astr_event = agent_runner.run_context.context.event
     tool_name_by_call_id: dict[str, str] = {}
     announced_native_tool_call_ids: set[str] = set()
+    had_streaming_delta = False
     while step_idx < max_step + 1:
         step_idx += 1
 
@@ -308,7 +327,15 @@ async def run_agent(
                     if chain.type == "reasoning" and not show_reasoning:
                         # display the reasoning content only when configured
                         continue
+                    had_streaming_delta = True
                     yield resp.data["chain"]  # MessageChain
+                elif resp.type == "llm_result" and agent_runner.streaming:
+                    final_chain = _build_streaming_final_result_chain(
+                        resp.data["chain"],
+                        had_streaming_delta=had_streaming_delta,
+                    )
+                    if final_chain is not None:
+                        yield final_chain
             if not stop_watcher.done():
                 stop_watcher.cancel()
                 try:

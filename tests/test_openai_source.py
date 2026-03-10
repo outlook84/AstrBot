@@ -486,6 +486,67 @@ async def test_parse_responses_completion_extracts_native_code_interpreter_calls
 
 
 @pytest.mark.asyncio
+async def test_parse_responses_completion_ignores_empty_native_code_interpreter_when_image_generation_present():
+    provider = _make_provider({"use_responses_api": True})
+    try:
+        response = OpenAIResponse.model_validate(
+            {
+                "id": "resp_code_interpreter_image_generation",
+                "object": "response",
+                "created_at": 1,
+                "model": "gpt-4.1-mini",
+                "output": [
+                    {
+                        "id": "ci_1",
+                        "type": "code_interpreter_call",
+                        "container_id": "container_1",
+                        "status": "completed",
+                        "code": "",
+                        "outputs": [
+                            {
+                                "type": "logs",
+                                "logs": "Internal routing log",
+                            }
+                        ],
+                    },
+                    {
+                        "id": "img_1",
+                        "type": "image_generation_call",
+                        "status": "completed",
+                        "result": "aGVsbG8=",
+                    },
+                    {
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Generated image",
+                                "annotations": [],
+                            }
+                        ],
+                    },
+                ],
+                "parallel_tool_calls": False,
+                "tool_choice": "auto",
+                "tools": [],
+            }
+        )
+
+        parsed = await provider._parse_responses_completion(response, tools=None)
+
+        assert parsed.completion_text == "Generated image"
+        assert parsed.result_chain is not None
+        assert len(parsed.result_chain.chain) == 2
+        assert len(parsed.native_tool_calls) == 1
+        assert parsed.native_tool_calls[0]["name"] == "openai_image_generation"
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
 async def test_parse_responses_completion_extracts_native_image_generation_calls():
     provider = _make_provider({"use_responses_api": True})
     try:

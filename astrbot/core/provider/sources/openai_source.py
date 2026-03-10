@@ -988,6 +988,9 @@ class ProviderOpenAIOfficial(Provider):
         tool_ids: list[str] = []
         native_tool_calls: list[dict[str, Any]] = []
         generated_images: list[str] = []
+        has_image_generation_call = any(
+            isinstance(item, ImageGenerationCall) for item in response.output
+        )
 
         for item in response.output:
             if isinstance(item, ResponseOutputMessage):
@@ -1021,6 +1024,12 @@ class ProviderOpenAIOfficial(Provider):
                         logs.append(output.logs)
                     elif isinstance(output, OutputImage):
                         images.append(output.url)
+                if (
+                    has_image_generation_call
+                    and not (item.code or "").strip()
+                    and not images
+                ):
+                    continue
                 native_tool_calls.append(
                     {
                         "id": item.id,
