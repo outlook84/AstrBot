@@ -5,6 +5,7 @@ filesystem operations, Python execution, shell execution, and security restricti
 """
 
 import os
+import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,6 +20,7 @@ from astrbot.core.computer.booters.local import (
     LocalPythonComponent,
     LocalRuntimeConfig,
     LocalShellComponent,
+    _build_identity_preexec,
     _ensure_safe_path,
     _is_safe_command,
 )
@@ -186,6 +188,83 @@ class TestLocalBooterLifecycle:
                 booter._ensure_runtime_ready()
 
         assert "cannot access venv_path" in str(exc_info.value)
+
+    def test_boot_reports_workspace_access_permission_hint(self, tmp_path):
+        """Test workspace access checks keep actionable permission hints."""
+        with _mock_local_paths(tmp_path):
+            booter = LocalBooter({"uid": 1000, "gid": 1001})
+        workspace = booter.runtime.workspace_path
+
+        def _fake_run(*args, **kwargs):
+            command = args[0]
+            if command[:2] == [sys.executable, "-c"] and str(workspace) in command:
+                raise subprocess.CalledProcessError(1, args[0], "", "")
+            return MagicMock(stdout="", stderr="", returncode=0)
+
+        with (
+            patch("astrbot.core.computer.booters.local.os.name", "posix"),
+            patch("astrbot.core.computer.booters.local.os.geteuid", return_value=0),
+            patch("pathlib.Path.exists", return_value=True),
+            patch(
+                "astrbot.core.computer.booters.local.subprocess.run",
+                side_effect=_fake_run,
+            ),
+        ):
+            with pytest.raises(PermissionError) as exc_info:
+                booter._ensure_runtime_ready()
+
+        assert "cannot access workspace_path" in str(exc_info.value)
+        assert "Please pre-create the path" in str(exc_info.value)
+
+    def test_boot_skips_workspace_creation_when_directory_already_exists(
+        self, tmp_path
+    ):
+        """Test existing workspace does not trigger an unnecessary identity-switched mkdir."""
+        workspace = (tmp_path / "computer" / "workspace").resolve()
+        workspace.mkdir(parents=True)
+        venv_path = (workspace / ".venv").resolve()
+
+        with _mock_local_paths(tmp_path):
+            booter = LocalBooter({"uid": 1000, "gid": 1001})
+
+        original_exists = Path.exists
+
+        def _fake_exists(path: Path) -> bool:
+            if path == venv_path:
+                return False
+            return original_exists(path)
+
+        with (
+            patch("astrbot.core.computer.booters.local.os.name", "posix"),
+            patch("astrbot.core.computer.booters.local.os.geteuid", return_value=0),
+            patch("pathlib.Path.exists", autospec=True, side_effect=_fake_exists),
+            patch("astrbot.core.computer.booters.local.subprocess.run") as mock_run,
+        ):
+            booter._ensure_runtime_ready()
+
+        assert any(
+            call.args[0] == [sys.executable, "-m", "venv", str(venv_path)]
+            for call in mock_run.call_args_list
+        )
+        assert not any(
+            call.args[0][:2] == [sys.executable, "-c"]
+            and "mkdir(parents=True, exist_ok=True)" in call.args[0][2]
+            and str(workspace) in call.args[0]
+            for call in mock_run.call_args_list
+        )
+
+
+class TestLocalIdentityHandling:
+    """Tests for local identity switching behavior."""
+
+    def test_same_uid_gid_does_not_build_preexec(self):
+        """Test matching uid/gid are treated the same as leaving them empty."""
+        with (
+            patch("astrbot.core.computer.booters.local.os.name", "posix"),
+            patch("astrbot.core.computer.booters.local.os.getuid", return_value=1000),
+            patch("astrbot.core.computer.booters.local.os.getgid", return_value=1001),
+        ):
+            assert _build_identity_preexec(1000, 1001) is None
 
 
 class TestLocalBooterUploadDownload:
@@ -910,13 +989,14 @@ class TestComputerClient:
         mock_config = MagicMock()
         mock_config.get = lambda key, default=None: {
             "provider_settings": {
+                "computer_use_runtime": "sandbox",
                 "sandbox": {
                     "booter": "shipyard",
                     "shipyard_endpoint": "http://localhost:8080",
                     "shipyard_access_token": "test_token",
                     "shipyard_ttl": 3600,
                     "shipyard_max_sessions": 10,
-                }
+                },
             }
         }.get(key, default)
         mock_context.get_config = MagicMock(return_value=mock_config)
@@ -961,9 +1041,10 @@ class TestComputerClient:
         mock_config = MagicMock()
         mock_config.get = lambda key, default=None: {
             "provider_settings": {
+                "computer_use_runtime": "sandbox",
                 "sandbox": {
                     "booter": "unknown_type",
-                }
+                },
             }
         }.get(key, default)
         mock_context.get_config = MagicMock(return_value=mock_config)
@@ -984,11 +1065,12 @@ class TestComputerClient:
         mock_config = MagicMock()
         mock_config.get = lambda key, default=None: {
             "provider_settings": {
+                "computer_use_runtime": "sandbox",
                 "sandbox": {
                     "booter": "shipyard",
                     "shipyard_endpoint": "http://localhost:8080",
                     "shipyard_access_token": "test_token",
-                }
+                },
             }
         }.get(key, default)
         mock_context.get_config = MagicMock(return_value=mock_config)
@@ -1028,11 +1110,12 @@ class TestComputerClient:
         mock_config = MagicMock()
         mock_config.get = lambda key, default=None: {
             "provider_settings": {
+                "computer_use_runtime": "sandbox",
                 "sandbox": {
                     "booter": "shipyard",
                     "shipyard_endpoint": "http://localhost:8080",
                     "shipyard_access_token": "test_token",
-                }
+                },
             }
         }.get(key, default)
         mock_context.get_config = MagicMock(return_value=mock_config)

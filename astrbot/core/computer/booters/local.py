@@ -124,6 +124,10 @@ def _assert_identity_switch_allowed(uid: int | None, gid: int | None) -> None:
 def _build_identity_preexec(uid: int | None, gid: int | None) -> Any | None:
     if os.name != "posix" or (uid is None and gid is None):
         return None
+    current_uid = os.getuid()
+    current_gid = os.getgid()
+    if uid in (None, current_uid) and gid in (None, current_gid):
+        return None
     _assert_identity_switch_allowed(uid, gid)
 
     def _set_identity() -> None:
@@ -161,6 +165,7 @@ def _run_with_identity(
     gid: int | None,
     error_message: str,
     target: Path,
+    treat_any_failure_as_permission: bool = False,
 ) -> None:
     preexec_fn = _build_identity_preexec(uid, gid)
     try:
@@ -175,7 +180,11 @@ def _run_with_identity(
         raise _permission_hint(error_message, target) from exc
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").lower()
-        if "permission denied" in stderr or "permissionerror" in stderr:
+        if (
+            treat_any_failure_as_permission
+            or "permission denied" in stderr
+            or "permissionerror" in stderr
+        ):
             raise _permission_hint(error_message, target) from exc
         raise RuntimeError(
             f"{error_message}: {target}. {exc.stderr.strip() or exc.stdout.strip() or exc}"
@@ -208,6 +217,7 @@ def _verify_path_access(
         gid,
         error_message,
         path,
+        treat_any_failure_as_permission=True,
     )
 
 
@@ -266,9 +276,11 @@ def _build_runtime_env(
     return run_env
 
 
-def _decode_shell_output(output: bytes | None) -> str:
+def _decode_shell_output(output: bytes | str | None) -> str:
     if output is None:
         return ""
+    if isinstance(output, str):
+        return output
 
     preferred = locale.getpreferredencoding(False) or "utf-8"
     try:
@@ -568,32 +580,33 @@ class LocalBooter(ComputerBooter):
         return self._runtime
 
     def _ensure_runtime_ready(self) -> None:
-        if os.name == "posix" and (
-            self._runtime.uid is not None or self._runtime.gid is not None
-        ):
-            _run_with_identity(
-                [
-                    sys.executable,
-                    "-c",
-                    (
-                        "from pathlib import Path; import sys; "
-                        "Path(sys.argv[1]).mkdir(parents=True, exist_ok=True)"
-                    ),
-                    str(self._runtime.workspace_path),
-                ],
-                self._runtime.uid,
-                self._runtime.gid,
-                "Local runtime cannot create workspace_path",
-                self._runtime.workspace_path,
-            )
-        else:
-            try:
-                self._runtime.workspace_path.mkdir(parents=True, exist_ok=True)
-            except PermissionError as exc:
-                raise _permission_hint(
+        if not self._runtime.workspace_path.exists():
+            if os.name == "posix" and (
+                self._runtime.uid is not None or self._runtime.gid is not None
+            ):
+                _run_with_identity(
+                    [
+                        sys.executable,
+                        "-c",
+                        (
+                            "from pathlib import Path; import sys; "
+                            "Path(sys.argv[1]).mkdir(parents=True, exist_ok=True)"
+                        ),
+                        str(self._runtime.workspace_path),
+                    ],
+                    self._runtime.uid,
+                    self._runtime.gid,
                     "Local runtime cannot create workspace_path",
                     self._runtime.workspace_path,
-                ) from exc
+                )
+            else:
+                try:
+                    self._runtime.workspace_path.mkdir(parents=True, exist_ok=True)
+                except PermissionError as exc:
+                    raise _permission_hint(
+                        "Local runtime cannot create workspace_path",
+                        self._runtime.workspace_path,
+                    ) from exc
         _verify_path_access(
             self._runtime.workspace_path,
             self._runtime.uid,
