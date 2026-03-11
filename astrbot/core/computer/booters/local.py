@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import locale
 import os
 import shutil
 import subprocess
@@ -265,6 +266,31 @@ def _build_runtime_env(
     return run_env
 
 
+def _decode_shell_output(output: bytes | None) -> str:
+    if output is None:
+        return ""
+
+    preferred = locale.getpreferredencoding(False) or "utf-8"
+    try:
+        return output.decode("utf-8")
+    except (LookupError, UnicodeDecodeError):
+        pass
+
+    if os.name == "nt":
+        for encoding in ("mbcs", "cp936", "gbk", "gb18030"):
+            try:
+                return output.decode(encoding)
+            except (LookupError, UnicodeDecodeError):
+                continue
+
+    try:
+        return output.decode(preferred)
+    except (LookupError, UnicodeDecodeError):
+        pass
+
+    return output.decode("utf-8", errors="replace")
+
+
 @dataclass
 class LocalShellComponent(ShellComponent):
     runtime: LocalRuntimeConfig
@@ -291,15 +317,17 @@ class LocalShellComponent(ShellComponent):
             preexec_fn = _build_identity_preexec(self.runtime.uid, self.runtime.gid)
             if background:
                 try:
-                    proc = subprocess.Popen(
+                    # `command` is intentionally executed through the current shell so
+                    # local computer-use behavior matches existing tool semantics.
+                    # Safety relies on `_is_safe_command()` and the allowed-root checks.
+                    proc = subprocess.Popen(  # noqa: S602  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
                         command,
                         shell=shell,
                         cwd=working_dir,
                         env=run_env,
                         preexec_fn=preexec_fn,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                     )
                 except PermissionError as exc:
                     raise _permission_hint(
@@ -311,7 +339,10 @@ class LocalShellComponent(ShellComponent):
                 self.runtime.execution_timeout if timeout is None else timeout
             )
             try:
-                result = subprocess.run(
+                # `command` is intentionally executed through the current shell so
+                # local computer-use behavior matches existing tool semantics.
+                # Safety relies on `_is_safe_command()` and the allowed-root checks.
+                result = subprocess.run(  # noqa: S602  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
                     command,
                     shell=shell,
                     cwd=working_dir,
@@ -319,15 +350,14 @@ class LocalShellComponent(ShellComponent):
                     timeout=effective_timeout,
                     preexec_fn=preexec_fn,
                     capture_output=True,
-                    text=True,
                 )
             except PermissionError as exc:
                 raise _permission_hint(
                     "Local runtime cannot start shell process", Path(working_dir)
                 ) from exc
             return {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
+                "stdout": _decode_shell_output(result.stdout),
+                "stderr": _decode_shell_output(result.stderr),
                 "exit_code": result.returncode,
             }
 

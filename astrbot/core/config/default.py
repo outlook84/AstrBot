@@ -238,6 +238,9 @@ DEFAULT_CONFIG = {
         "telegram": {
             "pre_ack_emoji": {"enable": False, "emojis": ["✍️"]},
         },
+        "discord": {
+            "pre_ack_emoji": {"enable": False, "emojis": ["🤔"]},
+        },
     },
     "wake_prefix": ["/"],
     "log_level": "INFO",
