@@ -61,6 +61,13 @@ async def handle_result(result: dict, event: AstrMessageEvent) -> ToolExecResult
     return resp
 
 
+def _get_local_runtime_config(context: ContextWrapper[AstrAgentContext]) -> dict:
+    provider_settings = context.context.context.get_config().get(
+        "provider_settings", {}
+    )
+    return provider_settings.get("local", {})
+
+
 @dataclass
 class PythonTool(FunctionTool):
     name: str = "astrbot_execute_ipython"
@@ -98,7 +105,7 @@ class LocalPythonTool(FunctionTool):
     ) -> ToolExecResult:
         if permission_error := check_admin_permission(context, "Python execution"):
             return permission_error
-        sb = get_local_booter()
+        sb = get_local_booter(_get_local_runtime_config(context))
         try:
             result = await sb.python.exec(code, silent=silent)
             return await handle_result(result, context.context.event)

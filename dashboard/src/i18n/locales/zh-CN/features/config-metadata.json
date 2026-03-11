@@ -11,13 +11,7 @@
         },
         "agent_runner_type": {
           "description": "执行器",
-          "labels": [
-            "内置 Agent",
-            "Dify",
-            "Coze",
-            "阿里云百炼应用",
-            "DeerFlow"
-          ]
+          "labels": ["内置 Agent", "Dify", "Coze", "阿里云百炼应用", "DeerFlow"]
         },
         "coze_agent_runner_provider_id": {
           "description": "Coze Agent 执行器提供商 ID"
@@ -150,7 +144,7 @@
     },
     "agent_computer_use": {
       "description": "使用电脑能力",
-      "hint": "让 AstrBot 访问和使用你的电脑或者隔离的沙盒环境，以执行更复杂的任务。详见: [沙盒模式](https://docs.astrbot.app/use/astrbot-agent-sandbox.html), [Skills](https://docs.astrbot.app/use/skills.html)。",
+      "hint": "让 AstrBot 访问和使用你的电脑或者隔离的沙盒环境，以执行更复杂的任务。local 运行环境不是安全沙箱，UID/GID 仅降低本地 shell/Python 子进程权限，文件工具仍使用 AstrBot 主进程权限，不能提供容器级或系统级隔离；如需更强隔离，请使用 sandbox。详见: [沙盒模式](https://docs.astrbot.app/use/astrbot-agent-sandbox.html), [Skills](https://docs.astrbot.app/use/skills.html)。",
       "provider_settings": {
         "computer_use_runtime": {
           "description": "运行环境",
@@ -159,6 +153,20 @@
         "computer_use_require_admin": {
           "description": "需要 AstrBot 管理员权限",
           "hint": "开启后，需要 AstrBot 管理员权限才能调用使用电脑能力。在平台配置->管理员中可添加管理员。使用 /sid 指令查看管理员 ID。"
+        },
+        "local": {
+          "uid": {
+            "description": "本地运行 UID",
+            "hint": "Linux/macOS 下本地命令和 Python 执行时使用的 UID。留空表示沿用 AstrBot 主进程用户。若指定其他 UID，AstrBot 进程本身必须具备切换用户权限（通常需要以 root 运行），并请确保目标用户可访问 data/computer/workspace 和 data/computer/workspace/.venv。"
+          },
+          "execution_timeout": {
+            "description": "本地执行默认超时（秒）",
+            "hint": "本地 shell 和 Python 工具默认使用的超时时间，适合有长时间运行任务需求的场景。"
+          },
+          "gid": {
+            "description": "本地运行 GID",
+            "hint": "Linux/macOS 下本地命令和 Python 执行时使用的 GID。留空表示沿用 AstrBot 主进程用户组。若指定其他 GID，AstrBot 进程本身必须具备切换用户组权限（通常需要以 root 运行），并请确保目标用户组可访问 data/computer/workspace 和 data/computer/workspace/.venv。"
+          }
         },
         "sandbox": {
           "booter": {
@@ -225,10 +233,7 @@
         },
         "context_limit_reached_strategy": {
           "description": "超出模型上下文窗口时的处理方式",
-          "labels": [
-            "按对话轮数截断",
-            "由 LLM 压缩上下文"
-          ],
+          "labels": ["按对话轮数截断", "由 LLM 压缩上下文"],
           "hint": "当按对话轮数截断时，会根据上面\"丢弃对话轮数\"的配置丢弃最旧的 N 轮对话。当由 LLM 压缩上下文时，会使用指定的模型进行上下文压缩。"
         },
         "llm_compress_instruction": {
@@ -313,10 +318,7 @@
         "tool_schema_mode": {
           "description": "工具调用模式",
           "hint": "skills-like 先下发工具名称与描述，再下发参数；full 一次性下发完整参数。",
-          "labels": [
-            "Skills-like（两阶段）",
-            "Full（完整参数）"
-          ]
+          "labels": ["Skills-like（两阶段）", "Full（完整参数）"]
         },
         "streaming_response": {
           "description": "流式输出"
@@ -324,10 +326,7 @@
         "unsupported_streaming_strategy": {
           "description": "不支持流式回复的平台",
           "hint": "选择在不支持流式回复的平台上的处理方式。实时分段回复会在系统接收流式响应检测到诸如标点符号等分段点时,立即发送当前已接收的内容",
-          "labels": [
-            "实时分段回复",
-            "关闭流式回复"
-          ]
+          "labels": ["实时分段回复", "关闭流式回复"]
         },
         "wake_prefix": {
           "description": "LLM 聊天额外唤醒前缀",
@@ -413,10 +412,7 @@
       },
       "lark_connection_mode": {
         "description": "订阅方式",
-        "labels": [
-          "长连接模式",
-          "推送至服务器模式"
-        ]
+        "labels": ["长连接模式", "推送至服务器模式"]
       },
       "lark_encrypt_key": {
         "description": "Encrypt Key",
@@ -870,10 +866,7 @@
           "split_mode": {
             "description": "分段模式",
             "hint": "用于分隔一段消息。默认情况下会根据句号、问号等标点符号分隔。如填写 `[。？！]` 将移除所有的句号、问号、感叹号。re.findall(r'<regex>', text)",
-            "labels": [
-              "正则表达式",
-              "分段词列表"
-            ]
+            "labels": ["正则表达式", "分段词列表"]
           },
           "regex": {
             "description": "分段正则表达式"
@@ -1061,11 +1054,7 @@
       "modalities": {
         "description": "模型能力",
         "hint": "模型支持的模态。如所填写的模型不支持图像，请取消勾选图像。",
-        "labels": [
-          "文本",
-          "图像",
-          "工具使用"
-        ]
+        "labels": ["文本", "图像", "工具使用"]
       },
       "custom_headers": {
         "description": "自定义添加请求头",

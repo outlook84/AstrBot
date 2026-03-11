@@ -207,7 +207,7 @@ def validate_config(data, schema: dict, is_core: bool) -> tuple[list[str], dict]
 
 
 def _log_computer_config_changes(old_config: dict, new_config: dict) -> None:
-    """Compare and log Computer/sandbox configuration changes."""
+    """Compare and log Computer/local/sandbox configuration changes."""
     old_ps = old_config.get("provider_settings", {})
     new_ps = new_config.get("provider_settings", {})
 
@@ -220,6 +220,19 @@ def _log_computer_config_changes(old_config: dict, new_config: dict) -> None:
             old_runtime,
             new_runtime,
         )
+
+    old_local = old_ps.get("local", {})
+    new_local = new_ps.get("local", {})
+    for key in sorted(set(old_local.keys()) | set(new_local.keys())):
+        old_val = old_local.get(key)
+        new_val = new_local.get(key)
+        if old_val != new_val:
+            logger.info(
+                "[Computer] Config changed: local.%s %s -> %s",
+                key,
+                old_val,
+                new_val,
+            )
 
     # Check sandbox sub-keys
     old_sandbox = old_ps.get("sandbox", {})

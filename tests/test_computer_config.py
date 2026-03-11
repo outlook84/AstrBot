@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +10,6 @@ import pytest
 
 from astrbot.core.computer.computer_client import _discover_bay_credentials
 from astrbot.dashboard.routes.config import _log_computer_config_changes
-
 
 # ═══════════════════════════════════════════════════════════════
 # _discover_bay_credentials
@@ -184,7 +182,10 @@ class TestLogComputerConfigChanges:
 
         mock_logger.info.assert_called()
         call_args = [str(c) for c in mock_logger.info.call_args_list]
-        assert any("computer_use_runtime" in c and "none" in c and "sandbox" in c for c in call_args)
+        assert any(
+            "computer_use_runtime" in c and "none" in c and "sandbox" in c
+            for c in call_args
+        )
 
     @patch("astrbot.dashboard.routes.config.logger")
     def test_no_log_when_runtime_unchanged(self, mock_logger) -> None:
@@ -214,7 +215,30 @@ class TestLogComputerConfigChanges:
                 assert args[3] == "shipyard_neo"
                 found = True
                 break
-        assert found, f"Expected booter change in log calls: {mock_logger.info.call_args_list}"
+        assert found, (
+            f"Expected booter change in log calls: {mock_logger.info.call_args_list}"
+        )
+
+    @patch("astrbot.dashboard.routes.config.logger")
+    def test_logs_local_key_change(self, mock_logger) -> None:
+        """Detects local runtime sub-key change."""
+        old = {"provider_settings": {"local": {"execution_timeout": 30}}}
+        new = {"provider_settings": {"local": {"execution_timeout": 120}}}
+
+        _log_computer_config_changes(old, new)
+
+        mock_logger.info.assert_called()
+        found = False
+        for call in mock_logger.info.call_args_list:
+            args = call[0]
+            if len(args) >= 4 and args[1] == "execution_timeout":
+                assert args[2] == 30
+                assert args[3] == 120
+                found = True
+                break
+        assert found, (
+            f"Expected local runtime change in log calls: {mock_logger.info.call_args_list}"
+        )
 
     @patch("astrbot.dashboard.routes.config.logger")
     def test_masks_token_values(self, mock_logger) -> None:
@@ -237,9 +261,7 @@ class TestLogComputerConfigChanges:
     def test_masks_empty_token_as_empty_label(self, mock_logger) -> None:
         """Empty token values show as '(empty)' not '***'."""
         old = {
-            "provider_settings": {
-                "sandbox": {"shipyard_neo_access_token": "old-key"}
-            }
+            "provider_settings": {"sandbox": {"shipyard_neo_access_token": "old-key"}}
         }
         new = {"provider_settings": {"sandbox": {"shipyard_neo_access_token": ""}}}
 
@@ -313,9 +335,7 @@ class TestLogComputerConfigChanges:
     def test_secret_key_masked(self, mock_logger) -> None:
         """Any key containing 'secret' is also masked."""
         old = {"provider_settings": {"sandbox": {"my_secret_key": ""}}}
-        new = {
-            "provider_settings": {"sandbox": {"my_secret_key": "very-secret-value"}}
-        }
+        new = {"provider_settings": {"sandbox": {"my_secret_key": "very-secret-value"}}}
 
         _log_computer_config_changes(old, new)
 

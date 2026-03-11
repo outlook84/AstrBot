@@ -147,7 +147,7 @@
     },
     "agent_computer_use": {
       "description": "Agent Computer Use",
-      "hint": "Allows the AstrBot to access and use your computer or an sandbox environment to perform more complex tasks. See [Sandbox Mode](https://docs.astrbot.app/use/astrbot-agent-sandbox.html), [Skills](https://docs.astrbot.app/use/skills.html)",
+      "hint": "Allows the AstrBot to access and use your computer or an sandbox environment to perform more complex tasks. The local runtime is not a security sandbox. UID/GID only reduces privileges for spawned local shell/Python processes, while file tools still use the AstrBot main process permissions, and does not provide container-level or system-level isolation; use sandbox when you need stronger isolation. See [Sandbox Mode](https://docs.astrbot.app/use/astrbot-agent-sandbox.html), [Skills](https://docs.astrbot.app/use/skills.html)",
       "provider_settings": {
         "computer_use_runtime": {
           "description": "Computer Use Runtime",
@@ -156,6 +156,20 @@
         "computer_use_require_admin": {
           "description": "Require AstrBot Admin Permission",
           "hint": "When enabled, AstrBot admin permission is required to use computer capabilities. Admins can be added in Platform Config. Use the /sid command to view admin IDs."
+        },
+        "local": {
+          "uid": {
+            "description": "Local Runtime UID",
+            "hint": "UID used for local shell and Python execution on Linux/macOS. Leave empty to use the AstrBot main process user. If you specify another UID, the AstrBot process itself must have permission to switch users (typically by running as root), and the target user must be able to access data/computer/workspace and data/computer/workspace/.venv."
+          },
+          "execution_timeout": {
+            "description": "Local Default Execution Timeout (seconds)",
+            "hint": "Default timeout used by local shell and Python tools, useful for longer-running tasks."
+          },
+          "gid": {
+            "description": "Local Runtime GID",
+            "hint": "GID used for local shell and Python execution on Linux/macOS. Leave empty to use the AstrBot main process group. If you specify another GID, the AstrBot process itself must have permission to switch groups (typically by running as root), and the target group must be able to access data/computer/workspace and data/computer/workspace/.venv."
+          }
         },
         "sandbox": {
           "booter": {
@@ -222,10 +236,7 @@
         },
         "context_limit_reached_strategy": {
           "description": "Handling When Model Context Window is Exceeded",
-          "labels": [
-            "Truncate by Turns",
-            "Compress by LLM"
-          ],
+          "labels": ["Truncate by Turns", "Compress by LLM"],
           "hint": "When 'Truncate by Turns' is selected, the oldest N conversation turns will be discarded based on the 'Dequeue Conversation Turns' setting above. When 'Compress by LLM' is selected, the specified model will be used for context compression."
         },
         "llm_compress_instruction": {
@@ -310,10 +321,7 @@
         "tool_schema_mode": {
           "description": "Tool Schema Mode",
           "hint": "Skills-like sends name/description first and re-queries for parameters; Full sends the complete schema in one step.",
-          "labels": [
-            "Skills-like (two-stage)",
-            "Full schema"
-          ]
+          "labels": ["Skills-like (two-stage)", "Full schema"]
         },
         "streaming_response": {
           "description": "Streaming Output"
@@ -321,10 +329,7 @@
         "unsupported_streaming_strategy": {
           "description": "Platforms Without Streaming Support",
           "hint": "Select the handling method for platforms that don't support streaming responses. Real-time segmented reply sends content immediately when the system detects segment points like punctuation during streaming reception",
-          "labels": [
-            "Real-time Segmented Reply",
-            "Disable Streaming Response"
-          ]
+          "labels": ["Real-time Segmented Reply", "Disable Streaming Response"]
         },
         "wake_prefix": {
           "description": "Additional LLM Chat Wake Prefix",
@@ -410,10 +415,7 @@
       },
       "lark_connection_mode": {
         "description": "Subscription Mode",
-        "labels": [
-          "Long Connection Mode",
-          "Webhook Server Mode"
-        ]
+        "labels": ["Long Connection Mode", "Webhook Server Mode"]
       },
       "lark_encrypt_key": {
         "description": "Encrypt Key",
@@ -867,10 +869,7 @@
           "split_mode": {
             "description": "Split Mode",
             "hint": "Used to segment a message. By default, it will be separated by punctuation marks like period, question mark, etc. For example, filling `[。？！]` will remove all periods, question marks, and exclamation marks. re.findall(r'<regex>', text)",
-            "labels": [
-              "Regex",
-              "Words List"
-            ]
+            "labels": ["Regex", "Words List"]
           },
           "regex": {
             "description": "Segmentation Regular Expression"
@@ -1058,11 +1057,7 @@
       "modalities": {
         "description": "Model capabilities",
         "hint": "Modalities supported by the model. If the model does not support images, uncheck image.",
-        "labels": [
-          "Text",
-          "Image",
-          "Tool use"
-        ]
+        "labels": ["Text", "Image", "Tool use"]
       },
       "custom_headers": {
         "description": "Custom request headers",

@@ -4,7 +4,10 @@ This module tests the ComputerClient, Booter implementations (local, shipyard, b
 filesystem operations, Python execution, shell execution, and security restrictions.
 """
 
+import os
 import sys
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,10 +17,42 @@ from astrbot.core.computer.booters.local import (
     LocalBooter,
     LocalFileSystemComponent,
     LocalPythonComponent,
+    LocalRuntimeConfig,
     LocalShellComponent,
     _ensure_safe_path,
     _is_safe_command,
 )
+
+
+def _current_runtime_config(workspace: Path | None = None) -> LocalRuntimeConfig:
+    python_path = Path(sys.executable).resolve()
+    if python_path.parent.name in {"bin", "Scripts"}:
+        venv_path = python_path.parent.parent
+    else:
+        venv_path = python_path.parent
+    return LocalRuntimeConfig(
+        workspace_path=(workspace or Path.cwd()).resolve(),
+        venv_path=venv_path.resolve(),
+    )
+
+
+@contextmanager
+def _mock_local_paths(base_path: Path):
+    with (
+        patch(
+            "astrbot.core.computer.booters.local.get_astrbot_root",
+            return_value=str(base_path),
+        ),
+        patch(
+            "astrbot.core.computer.booters.local.get_astrbot_data_path",
+            return_value=str(base_path),
+        ),
+        patch(
+            "astrbot.core.computer.booters.local.get_astrbot_temp_path",
+            return_value=str(base_path),
+        ),
+    ):
+        yield
 
 
 class TestLocalBooterInit:
@@ -38,6 +73,30 @@ class TestLocalBooterInit:
         assert booter.python is booter._python
         assert booter.shell is booter._shell
 
+    def test_local_booter_uses_local_runtime_config(self, tmp_path):
+        """Test LocalBooter derives fixed local runtime paths."""
+        workspace = (tmp_path / "computer" / "workspace").resolve()
+        venv_path = (workspace / ".venv").resolve()
+
+        with _mock_local_paths(tmp_path):
+            booter = LocalBooter({"uid": 1000, "gid": 1001})
+
+        assert booter.runtime == LocalRuntimeConfig(
+            workspace_path=workspace.resolve(),
+            venv_path=venv_path.resolve(),
+            execution_timeout=30,
+            uid=1000,
+            gid=1001,
+        )
+
+    def test_local_booter_rejects_non_positive_execution_timeout(self, tmp_path):
+        """Test LocalBooter rejects invalid execution timeout values."""
+        with _mock_local_paths(tmp_path):
+            with pytest.raises(ValueError) as exc_info:
+                LocalBooter({"execution_timeout": 0})
+
+        assert "execution_timeout" in str(exc_info.value)
+
 
 class TestLocalBooterLifecycle:
     """Tests for LocalBooter boot and shutdown."""
@@ -46,9 +105,9 @@ class TestLocalBooterLifecycle:
     async def test_boot(self):
         """Test LocalBooter boot method."""
         booter = LocalBooter()
-        # Should not raise any exception
-        await booter.boot("test-session-id")
-        # boot is a no-op for LocalBooter
+        with patch.object(booter, "_ensure_runtime_ready") as ensure_runtime_ready:
+            await booter.boot("test-session-id")
+        ensure_runtime_ready.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_shutdown(self):
@@ -62,6 +121,71 @@ class TestLocalBooterLifecycle:
         """Test LocalBooter available method returns True."""
         booter = LocalBooter()
         assert await booter.available() is True
+
+    def test_boot_reports_workspace_permission_hint(self, tmp_path):
+        """Test workspace creation failure gives actionable hint."""
+        with _mock_local_paths(tmp_path):
+            booter = LocalBooter()
+
+        with patch(
+            "pathlib.Path.mkdir", side_effect=PermissionError("Permission denied")
+        ):
+            with pytest.raises(PermissionError) as exc_info:
+                booter._ensure_runtime_ready()
+
+        assert "cannot create workspace_path" in str(exc_info.value)
+        assert "Please pre-create the path" in str(exc_info.value)
+
+    def test_boot_creates_workspace_and_venv_with_configured_identity(self, tmp_path):
+        """Test runtime bootstrap uses configured uid/gid for workspace and venv creation."""
+        workspace = (tmp_path / "computer" / "workspace").resolve()
+        venv_path = (workspace / ".venv").resolve()
+
+        with _mock_local_paths(tmp_path):
+            booter = LocalBooter({"uid": 1000, "gid": 1001})
+
+        with (
+            patch("astrbot.core.computer.booters.local.os.name", "posix"),
+            patch("astrbot.core.computer.booters.local.os.geteuid", return_value=0),
+            patch("pathlib.Path.exists", return_value=False),
+            patch("astrbot.core.computer.booters.local.subprocess.run") as mock_run,
+        ):
+            booter._ensure_runtime_ready()
+
+        first_call = mock_run.call_args_list[0]
+        second_call = mock_run.call_args_list[2]
+        assert first_call.kwargs["preexec_fn"] is not None
+        assert first_call.args[0][-1] == str(workspace)
+        assert second_call.kwargs["preexec_fn"] is not None
+        assert second_call.args[0] == [sys.executable, "-m", "venv", str(venv_path)]
+
+    def test_boot_reports_existing_venv_access_permission_hint(self, tmp_path):
+        """Test existing venv permission failures are reported before execution."""
+        workspace = (tmp_path / "computer" / "workspace").resolve()
+        venv_python = (workspace / ".venv" / "bin" / "python").resolve()
+
+        with _mock_local_paths(tmp_path):
+            booter = LocalBooter({"uid": 1000, "gid": 1001})
+
+        def _fake_run(*args, **kwargs):
+            command = args[0]
+            if command and command[0] == str(venv_python):
+                raise PermissionError("Permission denied")
+            return MagicMock(stdout="", stderr="", returncode=0)
+
+        with (
+            patch("astrbot.core.computer.booters.local.os.name", "posix"),
+            patch("astrbot.core.computer.booters.local.os.geteuid", return_value=0),
+            patch("pathlib.Path.exists", return_value=True),
+            patch(
+                "astrbot.core.computer.booters.local.subprocess.run",
+                side_effect=_fake_run,
+            ),
+        ):
+            with pytest.raises(PermissionError) as exc_info:
+                booter._ensure_runtime_ready()
+
+        assert "cannot access venv_path" in str(exc_info.value)
 
 
 class TestLocalBooterUploadDownload:
@@ -178,7 +302,7 @@ class TestLocalShellComponent:
     @pytest.mark.asyncio
     async def test_exec_safe_command(self):
         """Test executing a safe command."""
-        shell = LocalShellComponent()
+        shell = LocalShellComponent(_current_runtime_config())
         result = await shell.exec("echo hello")
         assert result["exit_code"] == 0
         assert "hello" in result["stdout"]
@@ -186,7 +310,7 @@ class TestLocalShellComponent:
     @pytest.mark.asyncio
     async def test_exec_blocked_command(self):
         """Test executing a blocked command raises PermissionError."""
-        shell = LocalShellComponent()
+        shell = LocalShellComponent(_current_runtime_config())
         with pytest.raises(PermissionError) as exc_info:
             await shell.exec("rm -rf /")
         assert "Blocked unsafe shell command" in str(exc_info.value)
@@ -194,7 +318,7 @@ class TestLocalShellComponent:
     @pytest.mark.asyncio
     async def test_exec_with_timeout(self):
         """Test command with timeout."""
-        shell = LocalShellComponent()
+        shell = LocalShellComponent(_current_runtime_config())
         # Sleep command should complete within timeout
         result = await shell.exec("echo test", timeout=5)
         assert result["exit_code"] == 0
@@ -202,25 +326,12 @@ class TestLocalShellComponent:
     @pytest.mark.asyncio
     async def test_exec_with_cwd(self, tmp_path):
         """Test command execution with custom working directory."""
-        shell = LocalShellComponent()
         # Create a test file
         test_file = tmp_path / "test.txt"
         test_file.write_text("content")
 
-        with (
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_data_path",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_temp_path",
-                return_value=str(tmp_path),
-            ),
-        ):
+        with _mock_local_paths(tmp_path):
+            shell = LocalShellComponent(LocalRuntimeConfig.from_dict({}))
             # Use python to read file to avoid Windows vs Unix command differences
             result = await shell.exec(
                 f'python -c "print(open(r\\"{test_file}\\"))"',
@@ -231,13 +342,109 @@ class TestLocalShellComponent:
     @pytest.mark.asyncio
     async def test_exec_with_env(self):
         """Test command execution with custom environment variables."""
-        shell = LocalShellComponent()
+        shell = LocalShellComponent(_current_runtime_config())
         result = await shell.exec(
             'python -c "import os; print(os.environ.get(\\"TEST_VAR\\", \\"\\"))"',
             env={"TEST_VAR": "test_value"},
         )
         assert result["exit_code"] == 0
         assert "test_value" in result["stdout"]
+
+    @pytest.mark.asyncio
+    async def test_exec_uses_workspace_and_venv_env(self, tmp_path):
+        """Test shell execution defaults to workspace and venv-aware env."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+        )
+        shell = LocalShellComponent(runtime)
+
+        with patch("astrbot.core.computer.booters.local.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+            await shell.exec("echo hello")
+
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["cwd"] == str(tmp_path)
+        assert kwargs["env"]["VIRTUAL_ENV"] == str(runtime.venv_path)
+        assert str(runtime.venv_bin_dir) in kwargs["env"]["PATH"]
+        assert kwargs["env"]["ASTRBOT_LOCAL_WORKSPACE"] == str(runtime.workspace_path)
+        assert kwargs["env"]["ASTRBOT_LOCAL_VENV_PATH"] == str(runtime.venv_path)
+        assert kwargs["env"]["ASTRBOT_LOCAL_VENV_BIN"] == str(runtime.venv_bin_dir)
+        assert kwargs["env"]["ASTRBOT_LOCAL_PYTHON"] == runtime.python_executable
+
+    @pytest.mark.asyncio
+    async def test_exec_uses_configured_default_timeout(self, tmp_path):
+        """Test shell execution uses runtime default timeout when omitted."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+            execution_timeout=120,
+        )
+        shell = LocalShellComponent(runtime)
+
+        with patch("astrbot.core.computer.booters.local.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+            await shell.exec("echo hello")
+
+        assert mock_run.call_args.kwargs["timeout"] == 120
+
+    @pytest.mark.asyncio
+    async def test_exec_does_not_allow_env_to_override_venv_binding(self, tmp_path):
+        """Test shell env cannot override PATH or VIRTUAL_ENV."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+        )
+        shell = LocalShellComponent(runtime)
+
+        with patch("astrbot.core.computer.booters.local.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+            await shell.exec(
+                "echo hello",
+                env={"PATH": "/tmp/fake-bin", "VIRTUAL_ENV": "/tmp/fake-venv"},
+            )
+
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["env"]["VIRTUAL_ENV"] == str(runtime.venv_path)
+        assert kwargs["env"]["PATH"].startswith(str(runtime.venv_bin_dir))
+        assert kwargs["env"]["ASTRBOT_LOCAL_VENV_BIN"] == str(runtime.venv_bin_dir)
+        assert kwargs["env"]["ASTRBOT_LOCAL_PYTHON"] == runtime.python_executable
+
+    @pytest.mark.asyncio
+    async def test_exec_appends_user_path_after_venv_path(self, tmp_path):
+        """Test shell env preserves user PATH additions after venv PATH."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+        )
+        shell = LocalShellComponent(runtime)
+
+        with patch("astrbot.core.computer.booters.local.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+            await shell.exec("echo hello", env={"PATH": "/tmp/custom-bin"})
+
+        path_value = mock_run.call_args.kwargs["env"]["PATH"]
+        assert path_value.startswith(str(runtime.venv_bin_dir))
+        assert "/tmp/custom-bin" in path_value.split(os.pathsep)
+
+    @pytest.mark.asyncio
+    async def test_exec_reports_shell_start_permission_hint(self, tmp_path):
+        """Test shell startup permission failure gives actionable hint."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+        )
+        shell = LocalShellComponent(runtime)
+
+        with patch(
+            "astrbot.core.computer.booters.local.subprocess.run",
+            side_effect=PermissionError("Permission denied"),
+        ):
+            with pytest.raises(PermissionError) as exc_info:
+                await shell.exec("echo hello")
+
+        assert "cannot start shell process" in str(exc_info.value)
+        assert str(tmp_path) in str(exc_info.value)
 
 
 class TestLocalPythonComponent:
@@ -246,21 +453,21 @@ class TestLocalPythonComponent:
     @pytest.mark.asyncio
     async def test_exec_simple_code(self):
         """Test executing simple Python code."""
-        python = LocalPythonComponent()
+        python = LocalPythonComponent(_current_runtime_config())
         result = await python.exec("print('hello')")
         assert result["data"]["output"]["text"] == "hello\n"
 
     @pytest.mark.asyncio
     async def test_exec_with_error(self):
         """Test executing Python code with error."""
-        python = LocalPythonComponent()
+        python = LocalPythonComponent(_current_runtime_config())
         result = await python.exec("raise ValueError('test error')")
         assert "test error" in result["data"]["error"]
 
     @pytest.mark.asyncio
     async def test_exec_with_timeout(self):
         """Test Python execution with timeout."""
-        python = LocalPythonComponent()
+        python = LocalPythonComponent(_current_runtime_config())
         # This should timeout
         result = await python.exec("import time; time.sleep(10)", timeout=1)
         assert "timed out" in result["data"]["error"].lower()
@@ -268,16 +475,74 @@ class TestLocalPythonComponent:
     @pytest.mark.asyncio
     async def test_exec_silent_mode(self):
         """Test Python execution in silent mode."""
-        python = LocalPythonComponent()
+        python = LocalPythonComponent(_current_runtime_config())
         result = await python.exec("print('hello')", silent=True)
         assert result["data"]["output"]["text"] == ""
 
     @pytest.mark.asyncio
     async def test_exec_return_value(self):
         """Test Python execution returns value correctly."""
-        python = LocalPythonComponent()
+        python = LocalPythonComponent(_current_runtime_config())
         result = await python.exec("result = 1 + 1\nprint(result)")
         assert "2" in result["data"]["output"]["text"]
+
+    @pytest.mark.asyncio
+    async def test_exec_uses_venv_python_and_workspace(self, tmp_path):
+        """Test Python execution uses configured venv Python and workspace cwd."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+        )
+        python = LocalPythonComponent(runtime)
+
+        with patch("astrbot.core.computer.booters.local.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+            await python.exec("print('hello')")
+
+        args = mock_run.call_args.args[0]
+        kwargs = mock_run.call_args.kwargs
+        assert args[0] == runtime.python_executable
+        assert kwargs["cwd"] == str(tmp_path)
+        assert kwargs["env"]["VIRTUAL_ENV"] == str(runtime.venv_path)
+        assert kwargs["env"]["ASTRBOT_LOCAL_WORKSPACE"] == str(runtime.workspace_path)
+        assert kwargs["env"]["ASTRBOT_LOCAL_VENV_PATH"] == str(runtime.venv_path)
+        assert kwargs["env"]["ASTRBOT_LOCAL_VENV_BIN"] == str(runtime.venv_bin_dir)
+        assert kwargs["env"]["ASTRBOT_LOCAL_PYTHON"] == runtime.python_executable
+
+    @pytest.mark.asyncio
+    async def test_exec_uses_configured_python_default_timeout(self, tmp_path):
+        """Test python execution uses runtime default timeout when omitted."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+            execution_timeout=180,
+        )
+        python = LocalPythonComponent(runtime)
+
+        with patch("astrbot.core.computer.booters.local.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+            await python.exec("print('hello')")
+
+        assert mock_run.call_args.kwargs["timeout"] == 180
+
+    @pytest.mark.asyncio
+    async def test_exec_reports_python_start_permission_hint(self, tmp_path):
+        """Test python startup permission failure gives actionable hint."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+        )
+        python = LocalPythonComponent(runtime)
+
+        with patch(
+            "astrbot.core.computer.booters.local.subprocess.run",
+            side_effect=PermissionError("Permission denied"),
+        ):
+            with pytest.raises(PermissionError) as exc_info:
+                await python.exec("print('hello')")
+
+        assert "cannot start python process" in str(exc_info.value)
+        assert str(tmp_path) in str(exc_info.value)
 
 
 class TestLocalFileSystemComponent:
@@ -286,23 +551,10 @@ class TestLocalFileSystemComponent:
     @pytest.mark.asyncio
     async def test_create_file(self, tmp_path):
         """Test creating a file."""
-        fs = LocalFileSystemComponent()
         test_path = tmp_path / "test.txt"
 
-        with (
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_data_path",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_temp_path",
-                return_value=str(tmp_path),
-            ),
-        ):
+        with _mock_local_paths(tmp_path):
+            fs = LocalFileSystemComponent(LocalRuntimeConfig.from_dict({}))
             result = await fs.create_file(str(test_path), "test content")
             assert result["success"] is True
             assert test_path.exists()
@@ -311,24 +563,11 @@ class TestLocalFileSystemComponent:
     @pytest.mark.asyncio
     async def test_read_file(self, tmp_path):
         """Test reading a file."""
-        fs = LocalFileSystemComponent()
         test_path = tmp_path / "test.txt"
         test_path.write_text("test content")
 
-        with (
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_data_path",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_temp_path",
-                return_value=str(tmp_path),
-            ),
-        ):
+        with _mock_local_paths(tmp_path):
+            fs = LocalFileSystemComponent(LocalRuntimeConfig.from_dict({}))
             result = await fs.read_file(str(test_path))
             assert result["success"] is True
             assert result["content"] == "test content"
@@ -336,48 +575,43 @@ class TestLocalFileSystemComponent:
     @pytest.mark.asyncio
     async def test_write_file(self, tmp_path):
         """Test writing to a file."""
-        fs = LocalFileSystemComponent()
         test_path = tmp_path / "test.txt"
 
-        with (
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_data_path",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_temp_path",
-                return_value=str(tmp_path),
-            ),
-        ):
+        with _mock_local_paths(tmp_path):
+            fs = LocalFileSystemComponent(LocalRuntimeConfig.from_dict({}))
             result = await fs.write_file(str(test_path), "new content")
             assert result["success"] is True
             assert test_path.read_text() == "new content"
 
     @pytest.mark.asyncio
+    async def test_write_file_does_not_apply_uid_gid_ownership(self, tmp_path):
+        """Test filesystem writes do not attempt ownership changes."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+            uid=1000,
+            gid=1001,
+        )
+        fs = LocalFileSystemComponent(runtime)
+        target = tmp_path / "test.txt"
+
+        with (
+            _mock_local_paths(tmp_path),
+            patch("astrbot.core.computer.booters.local.os.chown") as mock_chown,
+        ):
+            result = await fs.write_file(str(target), "new content")
+
+        assert result["success"] is True
+        mock_chown.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_delete_file(self, tmp_path):
         """Test deleting a file."""
-        fs = LocalFileSystemComponent()
         test_path = tmp_path / "test.txt"
         test_path.write_text("test")
 
-        with (
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_data_path",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_temp_path",
-                return_value=str(tmp_path),
-            ),
-        ):
+        with _mock_local_paths(tmp_path):
+            fs = LocalFileSystemComponent(LocalRuntimeConfig.from_dict({}))
             result = await fs.delete_file(str(test_path))
             assert result["success"] is True
             assert not test_path.exists()
@@ -385,25 +619,12 @@ class TestLocalFileSystemComponent:
     @pytest.mark.asyncio
     async def test_delete_directory(self, tmp_path):
         """Test deleting a directory."""
-        fs = LocalFileSystemComponent()
         test_dir = tmp_path / "testdir"
         test_dir.mkdir()
         (test_dir / "file.txt").write_text("test")
 
-        with (
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_data_path",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_temp_path",
-                return_value=str(tmp_path),
-            ),
-        ):
+        with _mock_local_paths(tmp_path):
+            fs = LocalFileSystemComponent(LocalRuntimeConfig.from_dict({}))
             result = await fs.delete_file(str(test_dir))
             assert result["success"] is True
             assert not test_dir.exists()
@@ -411,26 +632,13 @@ class TestLocalFileSystemComponent:
     @pytest.mark.asyncio
     async def test_list_dir(self, tmp_path):
         """Test listing directory contents."""
-        fs = LocalFileSystemComponent()
         # Create test files
         (tmp_path / "file1.txt").write_text("content1")
         (tmp_path / "file2.txt").write_text("content2")
         (tmp_path / ".hidden").write_text("hidden")
 
-        with (
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_root",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_data_path",
-                return_value=str(tmp_path),
-            ),
-            patch(
-                "astrbot.core.computer.booters.local.get_astrbot_temp_path",
-                return_value=str(tmp_path),
-            ),
-        ):
+        with _mock_local_paths(tmp_path):
+            fs = LocalFileSystemComponent(LocalRuntimeConfig.from_dict({}))
             # Without hidden files
             result = await fs.list_dir(str(tmp_path), show_hidden=False)
             assert result["success"] is True
@@ -445,7 +653,21 @@ class TestLocalFileSystemComponent:
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):
         """Test reading a non-existent file raises error."""
-        fs = LocalFileSystemComponent()
+        with _mock_local_paths(tmp_path):
+            fs = LocalFileSystemComponent(LocalRuntimeConfig.from_dict({}))
+            # Should raise FileNotFoundError
+            with pytest.raises(FileNotFoundError):
+                await fs.read_file(str(tmp_path / "nonexistent.txt"))
+
+    @pytest.mark.asyncio
+    async def test_create_file_reports_parent_permission_hint(self, tmp_path):
+        """Test parent directory permission failure gives actionable hint."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+        )
+        fs = LocalFileSystemComponent(runtime)
+        target = tmp_path / "nested" / "test.txt"
 
         with (
             patch(
@@ -460,10 +682,48 @@ class TestLocalFileSystemComponent:
                 "astrbot.core.computer.booters.local.get_astrbot_temp_path",
                 return_value=str(tmp_path),
             ),
+            patch(
+                "pathlib.Path.mkdir", side_effect=PermissionError("Permission denied")
+            ),
         ):
-            # Should raise FileNotFoundError
-            with pytest.raises(FileNotFoundError):
-                await fs.read_file(str(tmp_path / "nonexistent.txt"))
+            with pytest.raises(PermissionError) as exc_info:
+                await fs.create_file(str(target), "content")
+
+        assert "cannot create parent directory" in str(exc_info.value)
+        assert str(target.parent) in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_read_file_reports_permission_hint(self, tmp_path):
+        """Test file read permission failure gives actionable hint."""
+        runtime = LocalRuntimeConfig(
+            workspace_path=tmp_path,
+            venv_path=tmp_path / ".venv",
+        )
+        fs = LocalFileSystemComponent(runtime)
+        target = tmp_path / "secret.txt"
+
+        with (
+            patch(
+                "astrbot.core.computer.booters.local.get_astrbot_root",
+                return_value=str(tmp_path),
+            ),
+            patch(
+                "astrbot.core.computer.booters.local.get_astrbot_data_path",
+                return_value=str(tmp_path),
+            ),
+            patch(
+                "astrbot.core.computer.booters.local.get_astrbot_temp_path",
+                return_value=str(tmp_path),
+            ),
+            patch(
+                "pathlib.Path.open", side_effect=PermissionError("Permission denied")
+            ),
+        ):
+            with pytest.raises(PermissionError) as exc_info:
+                await fs.read_file(str(target))
+
+        assert "cannot read file" in str(exc_info.value)
+        assert str(target) in str(exc_info.value)
 
 
 class TestComputerBooterBase:
@@ -603,15 +863,39 @@ class TestComputerClient:
 
         # Clear the global booter to test singleton
         computer_client.local_booter = None
+        computer_client._local_booter_signature = None
 
-        booter1 = computer_client.get_local_booter()
-        booter2 = computer_client.get_local_booter()
+        with patch.object(LocalBooter, "_ensure_runtime_ready"):
+            booter1 = computer_client.get_local_booter()
+            booter2 = computer_client.get_local_booter()
 
         assert isinstance(booter1, LocalBooter)
         assert booter1 is booter2  # Same instance (singleton)
 
         # Reset for other tests
         computer_client.local_booter = None
+        computer_client._local_booter_signature = None
+
+    def test_get_local_booter_recreates_for_new_config(self):
+        """Test get_local_booter rebuilds singleton when config changes."""
+        from astrbot.core.computer import computer_client
+
+        computer_client.local_booter = None
+        computer_client._local_booter_signature = None
+
+        with patch(
+            "astrbot.core.computer.computer_client.LocalBooter",
+            side_effect=lambda cfg=None: MagicMock(config=cfg),
+        ):
+            booter1 = computer_client.get_local_booter({"execution_timeout": 30})
+            booter2 = computer_client.get_local_booter({"execution_timeout": 30})
+            booter3 = computer_client.get_local_booter({"execution_timeout": 60})
+
+        assert booter1 is booter2
+        assert booter3 is not booter1
+
+        computer_client.local_booter = None
+        computer_client._local_booter_signature = None
 
     @pytest.mark.asyncio
     async def test_get_booter_shipyard(self):

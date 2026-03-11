@@ -13,10 +13,11 @@ from astrbot.core.utils.astrbot_path import (
 )
 
 from .booters.base import ComputerBooter
-from .booters.local import LocalBooter
+from .booters.local import LocalBooter, LocalRuntimeConfig
 
 session_booter: dict[str, ComputerBooter] = {}
 local_booter: ComputerBooter | None = None
+_local_booter_signature: str | None = None
 _MANAGED_SKILLS_FILE = ".astrbot_managed_skills.json"
 
 
@@ -506,8 +507,21 @@ async def sync_skills_to_active_sandboxes() -> None:
             )
 
 
-def get_local_booter() -> ComputerBooter:
-    global local_booter
-    if local_booter is None:
-        local_booter = LocalBooter()
+def get_local_booter(config: dict | None = None) -> ComputerBooter:
+    global local_booter, _local_booter_signature
+    runtime = LocalRuntimeConfig.from_dict(config)
+    signature = json.dumps(
+        {
+            "execution_timeout": runtime.execution_timeout,
+            "uid": runtime.uid,
+            "gid": runtime.gid,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    if local_booter is None or _local_booter_signature != signature:
+        booter = LocalBooter(config)
+        booter._ensure_runtime_ready()
+        local_booter = booter
+        _local_booter_signature = signature
     return local_booter

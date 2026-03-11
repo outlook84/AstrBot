@@ -145,6 +145,11 @@ DEFAULT_CONFIG = {
         },
         "computer_use_runtime": "none",
         "computer_use_require_admin": True,
+        "local": {
+            "execution_timeout": 30,
+            "uid": None,
+            "gid": None,
+        },
         "sandbox": {
             "booter": "shipyard_neo",
             "shipyard_endpoint": "",
@@ -3007,7 +3012,7 @@ CONFIG_METADATA_3 = {
             },
             "agent_computer_use": {
                 "description": "Agent Computer Use",
-                "hint": "",
+                "hint": "local 运行环境不是安全沙箱。配置 UID/GID 只会降低本地 shell/Python 子进程权限，文件工具仍使用 AstrBot 主进程权限，不能提供容器级或系统级隔离；如需更强隔离，请使用 sandbox。",
                 "type": "object",
                 "items": {
                     "provider_settings.computer_use_runtime": {
@@ -3021,6 +3026,30 @@ CONFIG_METADATA_3 = {
                         "description": "需要 AstrBot 管理员权限",
                         "type": "bool",
                         "hint": "开启后，需要 AstrBot 管理员权限才能调用使用电脑能力。在平台配置->管理员中可添加管理员。使用 /sid 指令查看管理员 ID。",
+                    },
+                    "provider_settings.local.uid": {
+                        "description": "本地运行 UID",
+                        "type": "int",
+                        "hint": "Linux/macOS 下本地命令和 Python 执行时使用的 UID。留空表示沿用 AstrBot 主进程用户。若指定其他 UID，AstrBot 进程本身必须具备切换用户权限（通常需要以 root 运行），并请确保目标用户可访问 data/computer/workspace 和 data/computer/workspace/.venv。",
+                        "condition": {
+                            "provider_settings.computer_use_runtime": "local",
+                        },
+                    },
+                    "provider_settings.local.execution_timeout": {
+                        "description": "本地执行默认超时（秒）",
+                        "type": "int",
+                        "hint": "本地 shell 和 Python 工具默认使用的超时时间，适合有长时间运行任务需求的场景。",
+                        "condition": {
+                            "provider_settings.computer_use_runtime": "local",
+                        },
+                    },
+                    "provider_settings.local.gid": {
+                        "description": "本地运行 GID",
+                        "type": "int",
+                        "hint": "Linux/macOS 下本地命令和 Python 执行时使用的 GID。留空表示沿用 AstrBot 主进程用户组。若指定其他 GID，AstrBot 进程本身必须具备切换用户组权限（通常需要以 root 运行），并请确保目标用户组可访问 data/computer/workspace 和 data/computer/workspace/.venv。",
+                        "condition": {
+                            "provider_settings.computer_use_runtime": "local",
+                        },
                     },
                     "provider_settings.sandbox.booter": {
                         "description": "沙箱环境驱动器",

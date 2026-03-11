@@ -12,7 +12,7 @@ class PythonComponent(Protocol):
         self,
         code: str,
         kernel_id: str | None = None,
-        timeout: int = 30,
+        timeout: int | None = None,
         silent: bool = False,
     ) -> dict[str, Any]:
         """Execute Python code"""

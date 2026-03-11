@@ -10,6 +10,13 @@ from ..computer_client import get_booter, get_local_booter
 from .permissions import check_admin_permission
 
 
+def _get_local_runtime_config(context: ContextWrapper[AstrAgentContext]) -> dict:
+    provider_settings = context.context.context.get_config().get(
+        "provider_settings", {}
+    )
+    return provider_settings.get("local", {})
+
+
 @dataclass
 class ExecuteShellTool(FunctionTool):
     name: str = "astrbot_execute_shell"
@@ -51,7 +58,7 @@ class ExecuteShellTool(FunctionTool):
             return permission_error
 
         if self.is_local:
-            sb = get_local_booter()
+            sb = get_local_booter(_get_local_runtime_config(context))
         else:
             sb = await get_booter(
                 context.context.context,

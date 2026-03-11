@@ -5,7 +5,9 @@ import os
 import shutil
 import subprocess
 import sys
+import venv
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from astrbot.api import logger
@@ -17,6 +19,9 @@ from astrbot.core.utils.astrbot_path import (
 
 from ..olayer import FileSystemComponent, PythonComponent, ShellComponent
 from .base import ComputerBooter
+
+if os.name == "posix":
+    import pwd
 
 _BLOCKED_COMMAND_PATTERNS = [
     " rm -rf ",
@@ -40,26 +45,236 @@ def _is_safe_command(command: str) -> bool:
     return not any(pat in cmd for pat in _BLOCKED_COMMAND_PATTERNS)
 
 
-def _ensure_safe_path(path: str) -> str:
-    abs_path = os.path.abspath(path)
-    allowed_roots = [
-        os.path.abspath(get_astrbot_root()),
-        os.path.abspath(get_astrbot_data_path()),
-        os.path.abspath(get_astrbot_temp_path()),
+def _get_allowed_roots() -> list[Path]:
+    return [
+        Path(get_astrbot_root()).resolve(),
+        Path(get_astrbot_data_path()).resolve(),
+        Path(get_astrbot_temp_path()).resolve(),
     ]
-    if not any(abs_path.startswith(root) for root in allowed_roots):
+
+
+def _ensure_safe_path(path: str | Path, base_dir: str | Path | None = None) -> str:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        base_path = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+        candidate = base_path / candidate
+    abs_path = candidate.resolve()
+    if not any(
+        abs_path == root or root in abs_path.parents for root in _get_allowed_roots()
+    ):
         raise PermissionError("Path is outside the allowed computer roots.")
-    return abs_path
+    return str(abs_path)
+
+
+@dataclass(slots=True)
+class LocalRuntimeConfig:
+    workspace_path: Path
+    venv_path: Path
+    execution_timeout: int = 30
+    uid: int | None = None
+    gid: int | None = None
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any] | None = None) -> LocalRuntimeConfig:
+        local_cfg = raw or {}
+        workspace_path = (
+            Path(get_astrbot_data_path()) / "computer" / "workspace"
+        ).resolve()
+        venv_path = (workspace_path / ".venv").resolve()
+
+        uid = local_cfg.get("uid")
+        gid = local_cfg.get("gid")
+        execution_timeout = local_cfg.get("execution_timeout", 30)
+        execution_timeout_value = (
+            int(execution_timeout) if execution_timeout not in (None, "") else 30
+        )
+        if execution_timeout_value <= 0:
+            raise ValueError("local.execution_timeout must be greater than 0.")
+        return cls(
+            workspace_path=workspace_path,
+            venv_path=venv_path,
+            execution_timeout=execution_timeout_value,
+            uid=int(uid) if uid not in (None, "") else None,
+            gid=int(gid) if gid not in (None, "") else None,
+        )
+
+    @property
+    def venv_bin_dir(self) -> Path:
+        return self.venv_path / ("Scripts" if os.name == "nt" else "bin")
+
+    @property
+    def python_executable(self) -> str:
+        name = "python.exe" if os.name == "nt" else "python"
+        return str(self.venv_bin_dir / name)
+
+
+def _assert_identity_switch_allowed(uid: int | None, gid: int | None) -> None:
+    if os.name != "posix" or (uid is None and gid is None):
+        return
+
+    current_uid = os.getuid()
+    current_gid = os.getgid()
+    if uid not in (None, current_uid) and os.geteuid() != 0:
+        raise PermissionError("Configured local uid requires running AstrBot as root.")
+    if gid not in (None, current_gid) and os.geteuid() != 0:
+        raise PermissionError("Configured local gid requires running AstrBot as root.")
+
+
+def _build_identity_preexec(uid: int | None, gid: int | None) -> Any | None:
+    if os.name != "posix" or (uid is None and gid is None):
+        return None
+    _assert_identity_switch_allowed(uid, gid)
+
+    def _set_identity() -> None:
+        if uid is not None:
+            try:
+                user_entry = pwd.getpwuid(uid)
+            except KeyError:
+                user_entry = None
+            if user_entry is not None:
+                os.initgroups(user_entry.pw_name, gid or user_entry.pw_gid)
+            elif gid is not None:
+                os.setgroups([gid])
+            else:
+                os.setgroups([])
+        elif gid is not None:
+            os.setgroups([gid])
+        if gid is not None:
+            os.setgid(gid)
+        if uid is not None:
+            os.setuid(uid)
+
+    return _set_identity
+
+
+def _permission_hint(message: str, target: Path) -> PermissionError:
+    return PermissionError(
+        f"{message}: {target}. "
+        "Please pre-create the path with the required permissions, or leave uid/gid empty to use the AstrBot process user."
+    )
+
+
+def _run_with_identity(
+    command: list[str],
+    uid: int | None,
+    gid: int | None,
+    error_message: str,
+    target: Path,
+) -> None:
+    preexec_fn = _build_identity_preexec(uid, gid)
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            preexec_fn=preexec_fn,
+        )
+    except PermissionError as exc:
+        raise _permission_hint(error_message, target) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").lower()
+        if "permission denied" in stderr or "permissionerror" in stderr:
+            raise _permission_hint(error_message, target) from exc
+        raise RuntimeError(
+            f"{error_message}: {target}. {exc.stderr.strip() or exc.stdout.strip() or exc}"
+        ) from exc
+
+
+def _verify_path_access(
+    path: Path,
+    uid: int | None,
+    gid: int | None,
+    error_message: str,
+    mode: str,
+) -> None:
+    if os.name != "posix" or (uid is None and gid is None):
+        return
+    _run_with_identity(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os, sys; "
+                "target=sys.argv[1]; "
+                "mode=int(sys.argv[2]); "
+                "raise SystemExit(0 if os.access(target, mode) else 1)"
+            ),
+            str(path),
+            str(mode),
+        ],
+        uid,
+        gid,
+        error_message,
+        path,
+    )
+
+
+def _verify_python_access(
+    python_executable: Path,
+    workspace_path: Path,
+    uid: int | None,
+    gid: int | None,
+) -> None:
+    if os.name != "posix" or (uid is None and gid is None):
+        return
+    _run_with_identity(
+        [str(python_executable), "-c", "print('astrbot-local-runtime-ok')"],
+        uid,
+        gid,
+        "Local runtime cannot access venv_path",
+        python_executable,
+    )
+    _verify_path_access(
+        workspace_path,
+        uid,
+        gid,
+        "Local runtime cannot access workspace_path",
+        os.R_OK | os.W_OK | os.X_OK,
+    )
+
+
+def _build_runtime_env(
+    runtime: LocalRuntimeConfig, env: dict[str, str] | None = None
+) -> dict[str, str]:
+    run_env = os.environ.copy()
+    run_env["VIRTUAL_ENV"] = str(runtime.venv_path)
+    extra_path = str(env["PATH"]) if env and "PATH" in env else ""
+    run_env["PATH"] = os.pathsep.join(
+        [str(runtime.venv_bin_dir), run_env.get("PATH", ""), extra_path]
+    ).strip(os.pathsep)
+    run_env["ASTRBOT_LOCAL_WORKSPACE"] = str(runtime.workspace_path)
+    run_env["ASTRBOT_LOCAL_VENV_PATH"] = str(runtime.venv_path)
+    run_env["ASTRBOT_LOCAL_VENV_BIN"] = str(runtime.venv_bin_dir)
+    run_env["ASTRBOT_LOCAL_PYTHON"] = runtime.python_executable
+    if env:
+        safe_env = {
+            str(k): str(v)
+            for k, v in env.items()
+            if str(k)
+            not in {
+                "PATH",
+                "VIRTUAL_ENV",
+                "ASTRBOT_LOCAL_WORKSPACE",
+                "ASTRBOT_LOCAL_VENV_PATH",
+                "ASTRBOT_LOCAL_VENV_BIN",
+                "ASTRBOT_LOCAL_PYTHON",
+            }
+        }
+        run_env.update(safe_env)
+    return run_env
 
 
 @dataclass
 class LocalShellComponent(ShellComponent):
+    runtime: LocalRuntimeConfig
+
     async def exec(
         self,
         command: str,
         cwd: str | None = None,
         env: dict[str, str] | None = None,
-        timeout: int | None = 30,
+        timeout: int | None = None,
         shell: bool = True,
         background: bool = False,
     ) -> dict[str, Any]:
@@ -67,30 +282,49 @@ class LocalShellComponent(ShellComponent):
             raise PermissionError("Blocked unsafe shell command.")
 
         def _run() -> dict[str, Any]:
-            run_env = os.environ.copy()
-            if env:
-                run_env.update({str(k): str(v) for k, v in env.items()})
-            working_dir = _ensure_safe_path(cwd) if cwd else get_astrbot_root()
+            run_env = _build_runtime_env(self.runtime, env)
+            working_dir = (
+                _ensure_safe_path(cwd, base_dir=self.runtime.workspace_path)
+                if cwd
+                else str(self.runtime.workspace_path)
+            )
+            preexec_fn = _build_identity_preexec(self.runtime.uid, self.runtime.gid)
             if background:
-                proc = subprocess.Popen(
+                try:
+                    proc = subprocess.Popen(
+                        command,
+                        shell=shell,
+                        cwd=working_dir,
+                        env=run_env,
+                        preexec_fn=preexec_fn,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                except PermissionError as exc:
+                    raise _permission_hint(
+                        "Local runtime cannot start shell process",
+                        Path(working_dir),
+                    ) from exc
+                return {"pid": proc.pid, "stdout": "", "stderr": "", "exit_code": None}
+            effective_timeout = (
+                self.runtime.execution_timeout if timeout is None else timeout
+            )
+            try:
+                result = subprocess.run(
                     command,
                     shell=shell,
                     cwd=working_dir,
                     env=run_env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    timeout=effective_timeout,
+                    preexec_fn=preexec_fn,
+                    capture_output=True,
                     text=True,
                 )
-                return {"pid": proc.pid, "stdout": "", "stderr": "", "exit_code": None}
-            result = subprocess.run(
-                command,
-                shell=shell,
-                cwd=working_dir,
-                env=run_env,
-                timeout=timeout,
-                capture_output=True,
-                text=True,
-            )
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot start shell process", Path(working_dir)
+                ) from exc
             return {
                 "stdout": result.stdout,
                 "stderr": result.stderr,
@@ -102,21 +336,38 @@ class LocalShellComponent(ShellComponent):
 
 @dataclass
 class LocalPythonComponent(PythonComponent):
+    runtime: LocalRuntimeConfig
+
     async def exec(
         self,
         code: str,
         kernel_id: str | None = None,
-        timeout: int = 30,
+        timeout: int | None = None,
         silent: bool = False,
     ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
             try:
-                result = subprocess.run(
-                    [os.environ.get("PYTHON", sys.executable), "-c", code],
-                    timeout=timeout,
-                    capture_output=True,
-                    text=True,
+                run_env = _build_runtime_env(self.runtime)
+                effective_timeout = (
+                    self.runtime.execution_timeout if timeout is None else timeout
                 )
+                try:
+                    result = subprocess.run(
+                        [self.runtime.python_executable, "-c", code],
+                        timeout=effective_timeout,
+                        capture_output=True,
+                        text=True,
+                        cwd=str(self.runtime.workspace_path),
+                        env=run_env,
+                        preexec_fn=_build_identity_preexec(
+                            self.runtime.uid, self.runtime.gid
+                        ),
+                    )
+                except PermissionError as exc:
+                    raise _permission_hint(
+                        "Local runtime cannot start python process",
+                        self.runtime.workspace_path,
+                    ) from exc
                 stdout = "" if silent else result.stdout
                 stderr = result.stderr if result.returncode != 0 else ""
                 return {
@@ -138,24 +389,45 @@ class LocalPythonComponent(PythonComponent):
 
 @dataclass
 class LocalFileSystemComponent(FileSystemComponent):
+    runtime: LocalRuntimeConfig
+
     async def create_file(
         self, path: str, content: str = "", mode: int = 0o644
     ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = _ensure_safe_path(path)
-            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-            with open(abs_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            os.chmod(abs_path, mode)
-            return {"success": True, "path": abs_path}
+            abs_path = Path(
+                _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
+            )
+            try:
+                abs_path.parent.mkdir(parents=True, exist_ok=True)
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot create parent directory", abs_path.parent
+                ) from exc
+            try:
+                with abs_path.open("w", encoding="utf-8") as f:
+                    f.write(content)
+                os.chmod(abs_path, mode)
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot write file", abs_path
+                ) from exc
+            return {"success": True, "path": str(abs_path)}
 
         return await asyncio.to_thread(_run)
 
     async def read_file(self, path: str, encoding: str = "utf-8") -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = _ensure_safe_path(path)
-            with open(abs_path, encoding=encoding) as f:
-                content = f.read()
+            abs_path = Path(
+                _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
+            )
+            try:
+                with abs_path.open(encoding=encoding) as f:
+                    content = f.read()
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot read file", abs_path
+                ) from exc
             return {"success": True, "content": content}
 
         return await asyncio.to_thread(_run)
@@ -164,22 +436,41 @@ class LocalFileSystemComponent(FileSystemComponent):
         self, path: str, content: str, mode: str = "w", encoding: str = "utf-8"
     ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = _ensure_safe_path(path)
-            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-            with open(abs_path, mode, encoding=encoding) as f:
-                f.write(content)
-            return {"success": True, "path": abs_path}
+            abs_path = Path(
+                _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
+            )
+            try:
+                abs_path.parent.mkdir(parents=True, exist_ok=True)
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot create parent directory", abs_path.parent
+                ) from exc
+            try:
+                with abs_path.open(mode, encoding=encoding) as f:
+                    f.write(content)
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot write file", abs_path
+                ) from exc
+            return {"success": True, "path": str(abs_path)}
 
         return await asyncio.to_thread(_run)
 
     async def delete_file(self, path: str) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = _ensure_safe_path(path)
-            if os.path.isdir(abs_path):
-                shutil.rmtree(abs_path)
-            else:
-                os.remove(abs_path)
-            return {"success": True, "path": abs_path}
+            abs_path = Path(
+                _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
+            )
+            try:
+                if abs_path.is_dir():
+                    shutil.rmtree(abs_path)
+                else:
+                    abs_path.unlink()
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot delete path", abs_path
+                ) from exc
+            return {"success": True, "path": str(abs_path)}
 
         return await asyncio.to_thread(_run)
 
@@ -187,8 +478,15 @@ class LocalFileSystemComponent(FileSystemComponent):
         self, path: str = ".", show_hidden: bool = False
     ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = _ensure_safe_path(path)
-            entries = os.listdir(abs_path)
+            abs_path = Path(
+                _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
+            )
+            try:
+                entries = os.listdir(abs_path)
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot list directory", abs_path
+                ) from exc
             if not show_hidden:
                 entries = [e for e in entries if not e.startswith(".")]
             return {"success": True, "entries": entries}
@@ -197,12 +495,14 @@ class LocalFileSystemComponent(FileSystemComponent):
 
 
 class LocalBooter(ComputerBooter):
-    def __init__(self) -> None:
-        self._fs = LocalFileSystemComponent()
-        self._python = LocalPythonComponent()
-        self._shell = LocalShellComponent()
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
+        self._runtime = LocalRuntimeConfig.from_dict(config)
+        self._fs = LocalFileSystemComponent(self._runtime)
+        self._python = LocalPythonComponent(self._runtime)
+        self._shell = LocalShellComponent(self._runtime)
 
     async def boot(self, session_id: str) -> None:
+        await asyncio.to_thread(self._ensure_runtime_ready)
         logger.info(f"Local computer booter initialized for session: {session_id}")
 
     async def shutdown(self) -> None:
@@ -232,3 +532,67 @@ class LocalBooter(ComputerBooter):
 
     async def available(self) -> bool:
         return True
+
+    @property
+    def runtime(self) -> LocalRuntimeConfig:
+        return self._runtime
+
+    def _ensure_runtime_ready(self) -> None:
+        if os.name == "posix" and (
+            self._runtime.uid is not None or self._runtime.gid is not None
+        ):
+            _run_with_identity(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "from pathlib import Path; import sys; "
+                        "Path(sys.argv[1]).mkdir(parents=True, exist_ok=True)"
+                    ),
+                    str(self._runtime.workspace_path),
+                ],
+                self._runtime.uid,
+                self._runtime.gid,
+                "Local runtime cannot create workspace_path",
+                self._runtime.workspace_path,
+            )
+        else:
+            try:
+                self._runtime.workspace_path.mkdir(parents=True, exist_ok=True)
+            except PermissionError as exc:
+                raise _permission_hint(
+                    "Local runtime cannot create workspace_path",
+                    self._runtime.workspace_path,
+                ) from exc
+        _verify_path_access(
+            self._runtime.workspace_path,
+            self._runtime.uid,
+            self._runtime.gid,
+            "Local runtime cannot access workspace_path",
+            os.R_OK | os.W_OK | os.X_OK,
+        )
+        if not Path(self._runtime.python_executable).exists():
+            logger.info("Creating local computer venv at %s", self._runtime.venv_path)
+            if os.name == "posix" and (
+                self._runtime.uid is not None or self._runtime.gid is not None
+            ):
+                _run_with_identity(
+                    [sys.executable, "-m", "venv", str(self._runtime.venv_path)],
+                    self._runtime.uid,
+                    self._runtime.gid,
+                    "Local runtime cannot create venv_path",
+                    self._runtime.venv_path,
+                )
+            else:
+                try:
+                    venv.EnvBuilder(with_pip=True).create(str(self._runtime.venv_path))
+                except PermissionError as exc:
+                    raise _permission_hint(
+                        "Local runtime cannot create venv_path", self._runtime.venv_path
+                    ) from exc
+        _verify_python_access(
+            Path(self._runtime.python_executable),
+            self._runtime.workspace_path,
+            self._runtime.uid,
+            self._runtime.gid,
+        )

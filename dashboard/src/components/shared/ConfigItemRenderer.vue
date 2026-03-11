@@ -2,13 +2,25 @@
   <div class="w-100">
     <!-- Special handling for specific metadata types -->
     <template v-if="itemMeta?._special === 'select_provider'">
-      <ProviderSelector :model-value="modelValue" @update:model-value="emitUpdate" :provider-type="'chat_completion'" />
+      <ProviderSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+        :provider-type="'chat_completion'"
+      />
     </template>
     <template v-else-if="itemMeta?._special === 'select_provider_stt'">
-      <ProviderSelector :model-value="modelValue" @update:model-value="emitUpdate" :provider-type="'speech_to_text'" />
+      <ProviderSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+        :provider-type="'speech_to_text'"
+      />
     </template>
     <template v-else-if="itemMeta?._special === 'select_provider_tts'">
-      <ProviderSelector :model-value="modelValue" @update:model-value="emitUpdate" :provider-type="'text_to_speech'" />
+      <ProviderSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+        :provider-type="'text_to_speech'"
+      />
     </template>
     <template v-else-if="itemMeta?._special === 'select_providers'">
       <ProviderSelector
@@ -18,7 +30,11 @@
         :multiple="true"
       />
     </template>
-    <template v-else-if="getSpecialName(itemMeta?._special) === 'select_agent_runner_provider'">
+    <template
+      v-else-if="
+        getSpecialName(itemMeta?._special) === 'select_agent_runner_provider'
+      "
+    >
       <ProviderSelector
         :model-value="modelValue"
         @update:model-value="emitUpdate"
@@ -27,20 +43,37 @@
       />
     </template>
     <template v-else-if="itemMeta?._special === 'provider_pool'">
-      <ProviderSelector :model-value="modelValue" @update:model-value="emitUpdate" :provider-type="'chat_completion'"
-        :button-text="t('core.shared.providerSelector.selectProviderPool')" />
+      <ProviderSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+        :provider-type="'chat_completion'"
+        :button-text="t('core.shared.providerSelector.selectProviderPool')"
+      />
     </template>
     <template v-else-if="itemMeta?._special === 'select_persona'">
-      <PersonaSelector :model-value="modelValue" @update:model-value="emitUpdate" />
+      <PersonaSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+      />
     </template>
     <template v-else-if="itemMeta?._special === 'persona_pool'">
-      <PersonaSelector :model-value="modelValue" @update:model-value="emitUpdate" :button-text="t('core.shared.personaSelector.selectPersonaPool')" />
+      <PersonaSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+        :button-text="t('core.shared.personaSelector.selectPersonaPool')"
+      />
     </template>
     <template v-else-if="itemMeta?._special === 'select_knowledgebase'">
-      <KnowledgeBaseSelector :model-value="modelValue" @update:model-value="emitUpdate" />
+      <KnowledgeBaseSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+      />
     </template>
     <template v-else-if="itemMeta?._special === 'select_plugin_set'">
-      <PluginSetSelector :model-value="modelValue" @update:model-value="emitUpdate" />
+      <PluginSetSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+      />
     </template>
     <template v-else-if="itemMeta?._special === 't2i_template'">
       <T2ITemplateEditor />
@@ -64,13 +97,17 @@
           :loading="loading"
           class="ml-2"
         >
-          {{ t('core.common.autoDetect') }}
+          {{ t("core.common.autoDetect") }}
         </v-btn>
       </div>
     </template>
 
     <div
-      v-else-if="itemMeta?.type === 'list' && itemMeta?.options && itemMeta?.render_type === 'checkbox'"
+      v-else-if="
+        itemMeta?.type === 'list' &&
+        itemMeta?.options &&
+        itemMeta?.render_type === 'checkbox'
+      "
       class="d-flex flex-wrap gap-20"
     >
       <v-checkbox
@@ -116,14 +153,25 @@
       <VueMonacoEditor
         :theme="itemMeta?.editor_theme || 'vs-light'"
         :language="itemMeta?.editor_language || 'json'"
-        style="min-height: 100px; flex-grow: 1; border: 1px solid rgba(0, 0, 0, 0.1);"
+        style="
+          min-height: 100px;
+          flex-grow: 1;
+          border: 1px solid rgba(0, 0, 0, 0.1);
+        "
         :value="modelValue"
         @update:value="emitUpdate"
       >
       </VueMonacoEditor>
-      <v-btn v-if="showFullscreenBtn" icon size="small" variant="text" color="primary" class="editor-fullscreen-btn"
+      <v-btn
+        v-if="showFullscreenBtn"
+        icon
+        size="small"
+        variant="text"
+        color="primary"
+        class="editor-fullscreen-btn"
         @click="$emit('open-fullscreen')"
-        :title="t('core.common.editor.fullscreen')">
+        :title="t('core.common.editor.fullscreen')"
+      >
         <v-icon>mdi-fullscreen</v-icon>
       </v-btn>
     </div>
@@ -145,7 +193,7 @@
       <v-slider
         v-if="itemMeta?.slider"
         :model-value="toNumber(modelValue)"
-        @update:model-value="val => emitUpdate(toNumber(val))"
+        @update:model-value="(val) => emitUpdate(toNumber(val))"
         :min="itemMeta?.slider?.min ?? 0"
         :max="itemMeta?.slider?.max ?? 100"
         :step="itemMeta?.slider?.step ?? 1"
@@ -156,7 +204,7 @@
       ></v-slider>
       <v-text-field
         :model-value="modelValue"
-        @update:model-value="val => emitUpdate(toNumber(val))"
+        @update:model-value="(val) => emitUpdate(toNumber(val))"
         density="compact"
         variant="outlined"
         class="config-field"
@@ -224,104 +272,108 @@
 </template>
 
 <script setup>
-import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
-import ListConfigItem from './ListConfigItem.vue'
-import FileConfigItem from './FileConfigItem.vue'
-import ObjectEditor from './ObjectEditor.vue'
-import ProviderSelector from './ProviderSelector.vue'
-import PersonaSelector from './PersonaSelector.vue'
-import KnowledgeBaseSelector from './KnowledgeBaseSelector.vue'
-import PluginSetSelector from './PluginSetSelector.vue'
-import T2ITemplateEditor from './T2ITemplateEditor.vue'
-import { useI18n, useModuleI18n } from '@/i18n/composables'
+import { VueMonacoEditor } from "@guolao/vue-monaco-editor";
+import ListConfigItem from "./ListConfigItem.vue";
+import FileConfigItem from "./FileConfigItem.vue";
+import ObjectEditor from "./ObjectEditor.vue";
+import ProviderSelector from "./ProviderSelector.vue";
+import PersonaSelector from "./PersonaSelector.vue";
+import KnowledgeBaseSelector from "./KnowledgeBaseSelector.vue";
+import PluginSetSelector from "./PluginSetSelector.vue";
+import T2ITemplateEditor from "./T2ITemplateEditor.vue";
+import { useI18n, useModuleI18n } from "@/i18n/composables";
 
 const props = defineProps({
   modelValue: {
     type: [String, Number, Boolean, Array, Object],
-    default: null
+    default: null,
   },
   itemMeta: {
     type: Object,
-    default: null
+    default: null,
   },
   pluginName: {
     type: String,
-    default: ''
+    default: "",
   },
   configKey: {
     type: String,
-    default: ''
+    default: "",
   },
   loading: {
     type: Boolean,
-    default: false
+    default: false,
   },
   showFullscreenBtn: {
     type: Boolean,
-    default: false
-  }
-})
+    default: false,
+  },
+});
 
-const emit = defineEmits(['update:modelValue', 'get-embedding-dim', 'open-fullscreen'])
-const { t } = useI18n()
-const { getRaw } = useModuleI18n('features/config-metadata')
+const emit = defineEmits([
+  "update:modelValue",
+  "get-embedding-dim",
+  "open-fullscreen",
+]);
+const { t } = useI18n();
+const { getRaw } = useModuleI18n("features/config-metadata");
 
 function emitUpdate(val) {
-  emit('update:modelValue', val)
+  emit("update:modelValue", val);
 }
 
 function toNumber(val) {
-  const n = parseFloat(val)
-  return isNaN(n) ? 0 : n
+  const n = parseFloat(val);
+  return isNaN(n) ? 0 : n;
 }
 
 function getLabel(itemMeta, index, option) {
-  const labels = getTranslatedLabels(itemMeta)
-  return labels ? labels[index] : option
+  const labels = getTranslatedLabels(itemMeta);
+  return labels ? labels[index] : option;
 }
 
 function getTranslatedLabels(itemMeta) {
-  if (!itemMeta?.labels) return null
-  if (typeof itemMeta.labels === 'string') {
-    const translatedLabels = getRaw(itemMeta.labels)
+  if (!itemMeta?.labels) return null;
+  if (typeof itemMeta.labels === "string") {
+    const translatedLabels = getRaw(itemMeta.labels);
     if (Array.isArray(translatedLabels)) {
-      return translatedLabels
+      return translatedLabels;
     }
   }
   if (Array.isArray(itemMeta.labels)) {
-    return itemMeta.labels
+    return itemMeta.labels;
   }
-  return null
+  return null;
 }
 
 function getSelectItems(itemMeta) {
-  const labels = getTranslatedLabels(itemMeta)
+  const labels = getTranslatedLabels(itemMeta);
   if (labels && itemMeta.options) {
     return itemMeta.options.map((value, index) => ({
       title: labels[index] || value,
-      value: value
-    }))
+      value: value,
+    }));
   }
-  return itemMeta.options || []
+  return itemMeta.options || [];
 }
 
 function parseSpecialValue(value) {
-  if (!value || typeof value !== 'string') {
-    return { name: '', subtype: '' }
+  if (!value || typeof value !== "string") {
+    return { name: "", subtype: "" };
   }
-  const [name, ...rest] = value.split(':')
+  const [name, ...rest] = value.split(":");
   return {
     name,
-    subtype: rest.join(':') || ''
-  }
+    subtype: rest.join(":") || "",
+  };
 }
 
 function getSpecialName(value) {
-  return parseSpecialValue(value).name
+  return parseSpecialValue(value).name;
 }
 
 function getSpecialSubtype(value) {
-  return parseSpecialValue(value).subtype
+  return parseSpecialValue(value).subtype;
 }
 </script>
 
