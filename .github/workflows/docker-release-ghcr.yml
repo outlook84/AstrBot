@@ -1,25 +1,23 @@
-name: Build Dev Docker Image to GHCR
+name: Build Release Docker Image to GHCR
 
 on:
+  schedule:
+    - cron: "0 0 * * *"
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to build'
-        required: true
-        default: 'dev'
 
 permissions:
   contents: read
   packages: write
 
 concurrency:
-  group: docker-dev-ghcr-${{ github.event.inputs.branch || 'dev' }}
+  group: docker-release-ghcr
   cancel-in-progress: true
 
 jobs:
   build-image:
     runs-on: ubuntu-latest
     env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       GHCR_OWNER: ${{ github.repository_owner }}
       HAS_GHCR_TOKEN: ${{ secrets.GHCR_GITHUB_TOKEN != '' }}
 
@@ -27,25 +25,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
+
+      - name: Check for new commits in the last 24 hours
+        if: github.event_name == 'schedule'
+        id: check-commits
+        shell: bash
+        run: |
+          latest_commit_ts="$(git log -1 --format=%ct)"
+          now_ts="$(date +%s)"
+          if [ $((now_ts - latest_commit_ts)) -gt 86400 ]; then
+            echo "No new commits in the last 24 hours, skipping build"
+            echo "has_commits=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found new commits in the last 24 hours"
+            echo "has_commits=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop scheduled build without new commits
+        if: github.event_name == 'schedule' && steps.check-commits.outputs.has_commits == 'false'
+        shell: bash
+        run: exit 0
 
       - name: Resolve image metadata
         id: meta
         shell: bash
         run: |
           short_sha="$(git rev-parse --short=6 HEAD)"
+          build_date="$(date -u +%F)"
           owner_lc="$(echo "${{ env.GHCR_OWNER }}" | tr '[:upper:]' '[:lower:]')"
-          # Normalize the branch name to a Docker tag-safe value.
-          branch_tag="$(printf '%s' "${{ github.event.inputs.branch }}" \
-            | tr '[:upper:]' '[:lower:]' \
-            | sed -E 's|[[:space:]/]+|-|g; s|[^a-z0-9._-]+|-|g; s|^[.-]+||; s|[.-]+$||; s|-+|-|g')"
-          if [ -z "$branch_tag" ]; then
-            echo "Branch name produced an empty Docker tag" >&2
-            exit 1
-          fi
           echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
-          echo "branch_tag=$branch_tag" >> "$GITHUB_OUTPUT"
+          echo "build_date=$build_date" >> "$GITHUB_OUTPUT"
           echo "image_name=ghcr.io/$owner_lc/astrbot" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
@@ -69,6 +80,9 @@ jobs:
           rm -rf astrbot/dashboard/dist
           mkdir -p astrbot/dashboard/dist
           cp -r dashboard/dist/. astrbot/dashboard/dist/
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -94,8 +108,10 @@ jobs:
         with:
           context: .
           file: ./Dockerfile.multistage
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.branch_tag }}
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.branch_tag }}-${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image_name }}:latest
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.build_date }}
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.build_date }}-${{ steps.meta.outputs.short_sha }}

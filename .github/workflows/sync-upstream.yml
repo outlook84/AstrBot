@@ -1,0 +1,31 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Every 6 hours
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Sync with Upstream
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git remote add upstream https://github.com/AstrBotDevs/AstrBot.git
+          git fetch upstream master
+          
+          git checkout master
+          git merge upstream/master --no-edit
+          
+          git push origin master
