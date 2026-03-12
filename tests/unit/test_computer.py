@@ -445,6 +445,17 @@ class TestLocalShellComponent:
         kwargs = mock_run.call_args.kwargs
         assert kwargs["cwd"] == str(tmp_path)
         assert kwargs["env"]["VIRTUAL_ENV"] == str(runtime.venv_path)
+        assert kwargs["env"]["HOME"] == str(runtime.workspace_path)
+        assert kwargs["env"]["XDG_CACHE_HOME"] == str(runtime.workspace_path / ".cache")
+        assert kwargs["env"]["XDG_CONFIG_HOME"] == str(
+            runtime.workspace_path / ".config"
+        )
+        assert kwargs["env"]["XDG_DATA_HOME"] == str(
+            runtime.workspace_path / ".local" / "share"
+        )
+        assert kwargs["env"]["PIP_CACHE_DIR"] == str(
+            runtime.workspace_path / ".cache" / "pip"
+        )
         assert str(runtime.venv_bin_dir) in kwargs["env"]["PATH"]
         assert kwargs["env"]["ASTRBOT_LOCAL_WORKSPACE"] == str(runtime.workspace_path)
         assert kwargs["env"]["ASTRBOT_LOCAL_VENV_PATH"] == str(runtime.venv_path)
@@ -469,7 +480,7 @@ class TestLocalShellComponent:
 
     @pytest.mark.asyncio
     async def test_exec_does_not_allow_env_to_override_venv_binding(self, tmp_path):
-        """Test shell env cannot override PATH or VIRTUAL_ENV."""
+        """Test shell env cannot override runtime-controlled environment bindings."""
         runtime = LocalRuntimeConfig(
             workspace_path=tmp_path,
             venv_path=tmp_path / ".venv",
@@ -480,11 +491,30 @@ class TestLocalShellComponent:
             mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
             await shell.exec(
                 "echo hello",
-                env={"PATH": "/tmp/fake-bin", "VIRTUAL_ENV": "/tmp/fake-venv"},
+                env={
+                    "PATH": "/tmp/fake-bin",
+                    "VIRTUAL_ENV": "/tmp/fake-venv",
+                    "HOME": "/tmp/fake-home",
+                    "XDG_CACHE_HOME": "/tmp/fake-cache",
+                    "XDG_CONFIG_HOME": "/tmp/fake-config",
+                    "XDG_DATA_HOME": "/tmp/fake-data",
+                    "PIP_CACHE_DIR": "/tmp/fake-pip-cache",
+                },
             )
 
         kwargs = mock_run.call_args.kwargs
         assert kwargs["env"]["VIRTUAL_ENV"] == str(runtime.venv_path)
+        assert kwargs["env"]["HOME"] == str(runtime.workspace_path)
+        assert kwargs["env"]["XDG_CACHE_HOME"] == str(runtime.workspace_path / ".cache")
+        assert kwargs["env"]["XDG_CONFIG_HOME"] == str(
+            runtime.workspace_path / ".config"
+        )
+        assert kwargs["env"]["XDG_DATA_HOME"] == str(
+            runtime.workspace_path / ".local" / "share"
+        )
+        assert kwargs["env"]["PIP_CACHE_DIR"] == str(
+            runtime.workspace_path / ".cache" / "pip"
+        )
         assert kwargs["env"]["PATH"].startswith(str(runtime.venv_bin_dir))
         assert kwargs["env"]["ASTRBOT_LOCAL_VENV_BIN"] == str(runtime.venv_bin_dir)
         assert kwargs["env"]["ASTRBOT_LOCAL_PYTHON"] == runtime.python_executable
@@ -583,6 +613,17 @@ class TestLocalPythonComponent:
         assert args[0] == runtime.python_executable
         assert kwargs["cwd"] == str(tmp_path)
         assert kwargs["env"]["VIRTUAL_ENV"] == str(runtime.venv_path)
+        assert kwargs["env"]["HOME"] == str(runtime.workspace_path)
+        assert kwargs["env"]["XDG_CACHE_HOME"] == str(runtime.workspace_path / ".cache")
+        assert kwargs["env"]["XDG_CONFIG_HOME"] == str(
+            runtime.workspace_path / ".config"
+        )
+        assert kwargs["env"]["XDG_DATA_HOME"] == str(
+            runtime.workspace_path / ".local" / "share"
+        )
+        assert kwargs["env"]["PIP_CACHE_DIR"] == str(
+            runtime.workspace_path / ".cache" / "pip"
+        )
         assert kwargs["env"]["ASTRBOT_LOCAL_WORKSPACE"] == str(runtime.workspace_path)
         assert kwargs["env"]["ASTRBOT_LOCAL_VENV_PATH"] == str(runtime.venv_path)
         assert kwargs["env"]["ASTRBOT_LOCAL_VENV_BIN"] == str(runtime.venv_bin_dir)

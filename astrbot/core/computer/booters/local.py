@@ -250,6 +250,11 @@ def _build_runtime_env(
 ) -> dict[str, str]:
     run_env = os.environ.copy()
     run_env["VIRTUAL_ENV"] = str(runtime.venv_path)
+    run_env["HOME"] = str(runtime.workspace_path)
+    run_env["XDG_CACHE_HOME"] = str(runtime.workspace_path / ".cache")
+    run_env["XDG_CONFIG_HOME"] = str(runtime.workspace_path / ".config")
+    run_env["XDG_DATA_HOME"] = str(runtime.workspace_path / ".local" / "share")
+    run_env["PIP_CACHE_DIR"] = str(runtime.workspace_path / ".cache" / "pip")
     extra_path = str(env["PATH"]) if env and "PATH" in env else ""
     run_env["PATH"] = os.pathsep.join(
         [str(runtime.venv_bin_dir), run_env.get("PATH", ""), extra_path]
@@ -266,6 +271,11 @@ def _build_runtime_env(
             not in {
                 "PATH",
                 "VIRTUAL_ENV",
+                "HOME",
+                "XDG_CACHE_HOME",
+                "XDG_CONFIG_HOME",
+                "XDG_DATA_HOME",
+                "PIP_CACHE_DIR",
                 "ASTRBOT_LOCAL_WORKSPACE",
                 "ASTRBOT_LOCAL_VENV_PATH",
                 "ASTRBOT_LOCAL_VENV_BIN",
