@@ -7,6 +7,8 @@ from pathlib import Path
 import click
 from filelock import FileLock, Timeout
 
+import runtime_bootstrap
+
 from ..utils import check_astrbot_root, check_dashboard, get_astrbot_root
 
 
@@ -32,6 +34,7 @@ async def run_astrbot(astrbot_root: Path) -> None:
 def run(reload: bool, port: str) -> None:
     """Run AstrBot"""
     try:
+        runtime_bootstrap.initialize_runtime_bootstrap()
         os.environ["ASTRBOT_CLI"] = "1"
         astrbot_root = get_astrbot_root()
 

@@ -4,6 +4,8 @@ from pathlib import Path
 import click
 from filelock import FileLock, Timeout
 
+import runtime_bootstrap
+
 from ..utils import check_dashboard, get_astrbot_root
 
 
@@ -38,6 +40,7 @@ async def initialize_astrbot(astrbot_root: Path) -> None:
 def init() -> None:
     """Initialize AstrBot"""
     click.echo("Initializing AstrBot...")
+    runtime_bootstrap.initialize_runtime_bootstrap()
     astrbot_root = get_astrbot_root()
     lock_file = astrbot_root / "astrbot.lock"
     lock = FileLock(lock_file, timeout=5)

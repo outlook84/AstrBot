@@ -1,5 +1,6 @@
 import logging
 import ssl
+import sys
 from typing import Any
 
 import aiohttp.connector as aiohttp_connector
@@ -7,6 +8,31 @@ import aiohttp.connector as aiohttp_connector
 from astrbot.utils.http_ssl_common import build_ssl_context_with_certifi
 
 logger = logging.getLogger(__name__)
+
+
+def configure_uvloop(log_obj: Any | None = None) -> bool:
+    log = log_obj or logger
+
+    if sys.platform == "win32":
+        log.debug("uvloop is not supported on Windows; skipped.")
+        return False
+
+    try:
+        import uvloop
+    except ImportError:
+        log.debug("uvloop is not installed; using default asyncio event loop.")
+        return False
+
+    try:
+        uvloop.install()
+    except Exception as exc:
+        log.warning(
+            "Failed to install uvloop; using default asyncio event loop: %r", exc
+        )
+        return False
+
+    log.info("Using uvloop as the default asyncio event loop.")
+    return True
 
 
 def _try_patch_aiohttp_ssl_context(
@@ -47,4 +73,5 @@ def configure_runtime_ca_bundle(log_obj: Any | None = None) -> bool:
 
 
 def initialize_runtime_bootstrap(log_obj: Any | None = None) -> bool:
+    configure_uvloop(log_obj=log_obj)
     return configure_runtime_ca_bundle(log_obj=log_obj)
