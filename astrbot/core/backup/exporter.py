@@ -64,6 +64,7 @@ class AstrBotExporter:
         self.kb_manager = kb_manager
         self.config_path = config_path
         self._checksums: dict[str, str] = {}
+        self._temporarily_initialized_kb_ids: set[str] = set()
 
     async def export_all(
         self,
@@ -112,6 +113,7 @@ class AstrBotExporter:
                     "kb_media": [],
                 }
                 if self.kb_manager:
+                    self._temporarily_initialized_kb_ids.clear()
                     if progress_callback:
                         await progress_callback(
                             "kb_metadata", 0, 100, "正在导出知识库元数据..."
@@ -128,9 +130,23 @@ class AstrBotExporter:
                         )
 
                     # 导出每个知识库的文档数据
-                    kb_insts = self.kb_manager.kb_insts
-                    total_kbs = len(kb_insts)
-                    for idx, (kb_id, kb_helper) in enumerate(kb_insts.items()):
+                    kb_records = kb_meta_data.get("knowledge_bases", [])
+                    total_kbs = len(kb_records)
+                    for idx, kb_record in enumerate(kb_records):
+                        kb_id = kb_record.get("kb_id", "")
+                        if not kb_id:
+                            continue
+                        kb_helper_before = self.kb_manager.kb_insts.get(kb_id)
+                        was_initialized = (
+                            kb_helper_before is not None
+                            and kb_helper_before.vec_db is not None
+                        )
+                        kb_helper = await self.kb_manager.get_kb(kb_id)
+                        if not kb_helper:
+                            logger.warning(f"导出知识库 {kb_id} 失败: 未找到知识库实例")
+                            continue
+                        if not was_initialized and kb_helper.vec_db is not None:
+                            self._temporarily_initialized_kb_ids.add(kb_id)
                         if progress_callback:
                             await progress_callback(
                                 "kb_documents",
@@ -156,6 +172,7 @@ class AstrBotExporter:
                         await progress_callback(
                             "kb_documents", total_kbs, total_kbs, "知识库文档导出完成"
                         )
+                    await self._release_temporarily_initialized_kbs()
 
                 # 3. 导出配置文件
                 if progress_callback:
@@ -198,10 +215,27 @@ class AstrBotExporter:
 
         except Exception as e:
             logger.error(f"备份导出失败: {e}")
+            if self.kb_manager:
+                await self._release_temporarily_initialized_kbs()
             # 清理失败的文件
             if os.path.exists(zip_path):
                 os.remove(zip_path)
             raise
+
+    async def _release_temporarily_initialized_kbs(self) -> None:
+        if not self.kb_manager or not self._temporarily_initialized_kb_ids:
+            return
+
+        for kb_id in list(self._temporarily_initialized_kb_ids):
+            kb_helper = self.kb_manager.kb_insts.get(kb_id)
+            if not kb_helper or kb_helper.vec_db is None:
+                continue
+            try:
+                await kb_helper.terminate()
+            except Exception as e:
+                logger.warning(f"释放临时初始化的知识库 {kb_id} 失败: {e}")
+
+        self._temporarily_initialized_kb_ids.clear()
 
     async def _export_main_database(self) -> dict[str, list[dict]]:
         """导出主数据库所有表"""
@@ -417,8 +451,9 @@ class AstrBotExporter:
             dir_stats = {}
         # 收集知识库 ID
         kb_document_tables = {}
-        if self.kb_manager:
-            for kb_id in self.kb_manager.kb_insts.keys():
+        for kb_record in kb_meta_data.get("knowledge_bases", []):
+            kb_id = kb_record.get("kb_id")
+            if kb_id:
                 kb_document_tables[kb_id] = "documents"
 
         # 收集附件文件列表
@@ -433,7 +468,13 @@ class AstrBotExporter:
         # 收集知识库媒体文件
         kb_media_files: dict[str, list[str]] = {}
         if self.kb_manager:
-            for kb_id, kb_helper in self.kb_manager.kb_insts.items():
+            for kb_record in kb_meta_data.get("knowledge_bases", []):
+                kb_id = kb_record.get("kb_id")
+                if not kb_id:
+                    continue
+                kb_helper = self.kb_manager.kb_insts.get(kb_id)
+                if not kb_helper:
+                    continue
                 media_files: list[str] = []
                 media_dir = kb_helper.kb_medias_dir
                 if media_dir.exists():

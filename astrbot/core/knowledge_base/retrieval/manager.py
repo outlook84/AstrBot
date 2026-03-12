@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 from astrbot import logger
 from astrbot.core.db.vec_db.base import Result
-from astrbot.core.db.vec_db.faiss_impl import FaissVecDB
 from astrbot.core.knowledge_base.kb_db_sqlite import KBSQLiteDatabase
 from astrbot.core.knowledge_base.retrieval.rank_fusion import RankFusion
 from astrbot.core.knowledge_base.retrieval.sparse_retriever import SparseRetriever
@@ -170,8 +169,7 @@ class RetrievalManager:
         first_rerank = None
         for kb_id in kb_ids:
             vec_db = kb_options[kb_id]["vec_db"]
-            if not isinstance(vec_db, FaissVecDB):
-                logger.warning(f"vec_db for kb_id {kb_id} is not FaissVecDB")
+            if vec_db is None:
                 continue
 
             rerank_pi = kb_options[kb_id]["rerank_provider_id"]
@@ -217,7 +215,9 @@ class RetrievalManager:
             if kb_id not in kb_options:
                 continue
             try:
-                vec_db: FaissVecDB = kb_options[kb_id]["vec_db"]
+                vec_db = kb_options[kb_id]["vec_db"]
+                if vec_db is None:
+                    continue
                 dense_k = int(kb_options[kb_id]["top_k_dense"])
                 vec_results = await vec_db.retrieve(
                     query=query,

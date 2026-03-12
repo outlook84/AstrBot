@@ -1,3 +1,4 @@
+import asyncio
 import traceback
 from pathlib import Path
 
@@ -33,6 +34,8 @@ class KnowledgeBaseManager:
         self._session_deleted_callback_registered = False
 
         self.kb_insts: dict[str, KBHelper] = {}
+        self._kb_records_by_id: dict[str, KnowledgeBase] = {}
+        self._kb_init_locks: dict[str, asyncio.Lock] = {}
 
     async def initialize(self) -> None:
         """初始化知识库模块"""
@@ -66,18 +69,42 @@ class KnowledgeBaseManager:
         logger.info(f"KnowledgeBase database initialized: {DB_PATH}")
 
     async def load_kbs(self) -> None:
-        """加载所有知识库实例"""
+        """加载所有知识库元数据，并创建惰性 helper。"""
         kb_records = await self.kb_db.list_kbs()
+        self.kb_insts.clear()
+        self._kb_records_by_id = {record.kb_id: record for record in kb_records}
         for record in kb_records:
-            kb_helper = KBHelper(
+            self.kb_insts[record.kb_id] = KBHelper(
                 kb_db=self.kb_db,
                 kb=record,
                 provider_manager=self.provider_manager,
                 kb_root_dir=FILES_PATH,
                 chunker=CHUNKER,
             )
-            await kb_helper.initialize()
-            self.kb_insts[record.kb_id] = kb_helper
+
+    async def _ensure_kb_helper_initialized(self, kb_id: str) -> KBHelper | None:
+        kb_helper = self.kb_insts.get(kb_id)
+        if not kb_helper:
+            kb_record = self._kb_records_by_id.get(kb_id)
+            if not kb_record:
+                return None
+            kb_helper = KBHelper(
+                kb_db=self.kb_db,
+                kb=kb_record,
+                provider_manager=self.provider_manager,
+                kb_root_dir=FILES_PATH,
+                chunker=CHUNKER,
+            )
+            self.kb_insts[kb_id] = kb_helper
+
+        if kb_helper.vec_db is not None:
+            return kb_helper
+
+        init_lock = self._kb_init_locks.setdefault(kb_id, asyncio.Lock())
+        async with init_lock:
+            if kb_helper.vec_db is None:
+                await kb_helper.initialize()
+        return kb_helper
 
     async def create_kb(
         self,
@@ -119,8 +146,9 @@ class KnowledgeBaseManager:
                     kb_root_dir=FILES_PATH,
                     chunker=CHUNKER,
                 )
-                await kb_helper.initialize()
                 await session.commit()
+                await session.refresh(kb)
+                self._kb_records_by_id[kb.kb_id] = kb
                 self.kb_insts[kb.kb_id] = kb_helper
                 return kb_helper
         except Exception as e:
@@ -130,14 +158,13 @@ class KnowledgeBaseManager:
 
     async def get_kb(self, kb_id: str) -> KBHelper | None:
         """获取知识库实例"""
-        if kb_id in self.kb_insts:
-            return self.kb_insts[kb_id]
+        return await self._ensure_kb_helper_initialized(kb_id)
 
     async def get_kb_by_name(self, kb_name: str) -> KBHelper | None:
         """通过名称获取知识库实例"""
-        for kb_helper in self.kb_insts.values():
-            if kb_helper.kb.kb_name == kb_name:
-                return kb_helper
+        for kb_id, kb_record in self._kb_records_by_id.items():
+            if kb_record.kb_name == kb_name:
+                return await self._ensure_kb_helper_initialized(kb_id)
         return None
 
     async def delete_kb(self, kb_id: str) -> bool:
@@ -152,12 +179,13 @@ class KnowledgeBaseManager:
             await session.commit()
 
         self.kb_insts.pop(kb_id, None)
+        self._kb_records_by_id.pop(kb_id, None)
+        self._kb_init_locks.pop(kb_id, None)
         return True
 
     async def list_kbs(self) -> list[KnowledgeBase]:
         """列出所有知识库实例"""
-        kbs = [kb_helper.kb for kb_helper in self.kb_insts.values()]
-        return kbs
+        return list(self._kb_records_by_id.values())
 
     async def update_kb(
         self,
@@ -202,6 +230,7 @@ class KnowledgeBaseManager:
             session.add(kb)
             await session.commit()
             await session.refresh(kb)
+        self._kb_records_by_id[kb.kb_id] = kb
 
         return kb_helper
 
@@ -285,6 +314,8 @@ class KnowledgeBaseManager:
                 logger.error(f"关闭知识库 {kb_id} 失败: {e}")
 
         self.kb_insts.clear()
+        self._kb_records_by_id.clear()
+        self._kb_init_locks.clear()
 
         # 关闭元数据数据库
         if hasattr(self, "kb_db") and self.kb_db:

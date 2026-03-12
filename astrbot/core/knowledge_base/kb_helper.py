@@ -4,12 +4,12 @@ import re
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiofiles
 
 from astrbot.core import logger
 from astrbot.core.db.vec_db.base import BaseVecDB
-from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 from astrbot.core.provider.manager import ProviderManager
 from astrbot.core.provider.provider import (
     EmbeddingProvider,
@@ -26,6 +26,9 @@ from .models import KBDocument, KBMedia, KnowledgeBase
 from .parsers.url_parser import extract_text_from_url
 from .parsers.util import select_parser
 from .prompts import TEXT_REPAIR_SYSTEM_PROMPT
+
+if TYPE_CHECKING:
+    from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
 
 class RateLimiter:
@@ -106,7 +109,7 @@ Text chunk to process:
 
 
 class KBHelper:
-    vec_db: BaseVecDB
+    vec_db: BaseVecDB | None
     kb: KnowledgeBase
 
     def __init__(
@@ -122,6 +125,7 @@ class KBHelper:
         self.prov_mgr = provider_manager
         self.kb_root_dir = kb_root_dir
         self.chunker = chunker
+        self.vec_db = None
 
         self.kb_dir = Path(self.kb_root_dir) / self.kb.kb_id
         self.kb_medias_dir = Path(self.kb_dir) / "medias" / self.kb.kb_id
@@ -157,12 +161,13 @@ class KBHelper:
             )
         return rp
 
-    async def _ensure_vec_db(self) -> FaissVecDB:
+    async def _ensure_vec_db(self) -> "FaissVecDB":
         if not self.kb.embedding_provider_id:
             raise ValueError(f"知识库 {self.kb.kb_name} 未配置 Embedding Provider")
 
         ep = await self.get_ep()
         rp = await self.get_rp()
+        from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
 
         vec_db = FaissVecDB(
             doc_store_path=str(self.kb_dir / "doc.db"),
@@ -185,6 +190,7 @@ class KBHelper:
     async def terminate(self) -> None:
         if self.vec_db:
             await self.vec_db.close()
+            self.vec_db = None
 
     async def upload_document(
         self,
@@ -327,7 +333,7 @@ class KBHelper:
 
                 await session.refresh(doc)
 
-            vec_db: FaissVecDB = self.vec_db  # type: ignore
+            vec_db = self.vec_db  # type: ignore[assignment]
             await self.kb_db.update_kb_stats(kb_id=self.kb.kb_id, vec_db=vec_db)
             await self.refresh_kb()
             await self.refresh_document(doc_id)
@@ -374,7 +380,7 @@ class KBHelper:
 
     async def delete_chunk(self, chunk_id: str, doc_id: str) -> None:
         """删除单个文本块及其相关数据"""
-        vec_db: FaissVecDB = self.vec_db  # type: ignore
+        vec_db = self.vec_db  # type: ignore[assignment]
         await vec_db.delete(chunk_id)
         await self.kb_db.update_kb_stats(
             kb_id=self.kb.kb_id,
@@ -409,7 +415,7 @@ class KBHelper:
         limit: int = 100,
     ) -> list[dict]:
         """获取文档的所有块及其元数据"""
-        vec_db: FaissVecDB = self.vec_db  # type: ignore
+        vec_db = self.vec_db  # type: ignore[assignment]
         chunks = await vec_db.document_storage.get_documents(
             metadata_filters={"kb_doc_id": doc_id},
             offset=offset,
@@ -432,7 +438,7 @@ class KBHelper:
 
     async def get_chunk_count_by_doc_id(self, doc_id: str) -> int:
         """获取文档的块数量"""
-        vec_db: FaissVecDB = self.vec_db  # type: ignore
+        vec_db = self.vec_db  # type: ignore[assignment]
         count = await vec_db.count_documents(metadata_filter={"kb_doc_id": doc_id})
         return count
 
