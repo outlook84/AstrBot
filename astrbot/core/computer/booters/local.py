@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import venv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,12 @@ _BLOCKED_COMMAND_PATTERNS = [
     " killall ",
 ]
 
+_NATIVE_PATH_CLS = type(Path("."))
+
+
+def _native_path(*segments: str | os.PathLike[str]) -> Path:
+    return _NATIVE_PATH_CLS(*segments)
+
 
 def _is_safe_command(command: str) -> bool:
     cmd = f" {command.strip().lower()} "
@@ -48,16 +54,19 @@ def _is_safe_command(command: str) -> bool:
 
 def _get_allowed_roots() -> list[Path]:
     return [
-        Path(get_astrbot_root()).resolve(),
-        Path(get_astrbot_data_path()).resolve(),
-        Path(get_astrbot_temp_path()).resolve(),
+        _native_path(get_astrbot_root()).resolve(),
+        _native_path(get_astrbot_data_path()).resolve(),
+        _native_path(get_astrbot_temp_path()).resolve(),
     ]
 
 
 def _ensure_safe_path(path: str | Path, base_dir: str | Path | None = None) -> str:
-    candidate = Path(path)
+    candidate = _native_path(path)
     if not candidate.is_absolute():
-        base_path = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+        if base_dir:
+            base_path = _native_path(base_dir).resolve()
+        else:
+            base_path = _native_path(os.getcwd()).resolve()
         candidate = base_path / candidate
     abs_path = candidate.resolve()
     if not any(
@@ -79,7 +88,7 @@ class LocalRuntimeConfig:
     def from_dict(cls, raw: dict[str, Any] | None = None) -> LocalRuntimeConfig:
         local_cfg = raw or {}
         workspace_path = (
-            Path(get_astrbot_data_path()) / "computer" / "workspace"
+            _native_path(get_astrbot_data_path()) / "computer" / "workspace"
         ).resolve()
         venv_path = (workspace_path / ".venv").resolve()
 
@@ -315,7 +324,9 @@ def _decode_shell_output(output: bytes | str | None) -> str:
 
 @dataclass
 class LocalShellComponent(ShellComponent):
-    runtime: LocalRuntimeConfig
+    runtime: LocalRuntimeConfig = field(
+        default_factory=lambda: LocalRuntimeConfig.from_dict({})
+    )
 
     async def exec(
         self,
