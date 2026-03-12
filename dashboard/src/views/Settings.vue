@@ -78,7 +78,7 @@
                                     variant="text"
                                     class="ml-2"
                                     :aria-label="tm('apiKey.docsLink')"
-                                    href="https://docs.astrbot.app/dev/openapi.html"
+                                    :href="links.apiDocs"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >
@@ -232,11 +232,13 @@ import SidebarCustomizer from '@/components/shared/SidebarCustomizer.vue';
 import BackupDialog from '@/components/shared/BackupDialog.vue';
 import { restartAstrBot as restartAstrBotRuntime } from '@/utils/restartAstrBot';
 import { useModuleI18n } from '@/i18n/composables';
+import { EXTERNAL_LINKS } from '@/utils/externalLinks';
 import { useTheme } from 'vuetify';
 import { PurpleTheme } from '@/theme/LightTheme';
 import { useToastStore } from '@/stores/toast';
 
 const { tm } = useModuleI18n('features/settings');
+const links = EXTERNAL_LINKS;
 const toastStore = useToastStore();
 const theme = useTheme();
 

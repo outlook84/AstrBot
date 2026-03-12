@@ -7,6 +7,7 @@ from astrbot.core.config.default import VERSION
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db.migration.helper import check_migration_needed_v4, do_migration_v4
 from astrbot.core.updator import AstrBotUpdator
+from astrbot.core.utils.deployment import is_containerized_runtime
 from astrbot.core.utils.io import download_dashboard, get_dashboard_version
 
 from .route import Response, Route, RouteContext
@@ -53,15 +54,40 @@ class UpdateRoute(Route):
 
     async def check_update(self):
         type_ = request.args.get("type", None)
+        containerized = is_containerized_runtime()
+        project_update_enabled = not containerized
+        dashboard_update_enabled = not containerized
 
         try:
             dv = await get_dashboard_version()
             if type_ == "dashboard":
                 return (
                     Response()
-                    .ok({"has_new_version": dv != f"v{VERSION}", "current_version": dv})
+                    .ok(
+                        {
+                            "has_new_version": bool(
+                                dashboard_update_enabled and dv != f"v{VERSION}",
+                            ),
+                            "current_version": dv,
+                            "project_update_enabled": project_update_enabled,
+                            "dashboard_update_enabled": dashboard_update_enabled,
+                        },
+                    )
                     .__dict__
                 )
+            if not project_update_enabled:
+                return Response(
+                    status="success",
+                    message="容器部署模式下已禁用在线更新检测，请通过更新镜像完成升级。",
+                    data={
+                        "version": f"v{VERSION}",
+                        "has_new_version": False,
+                        "dashboard_version": dv,
+                        "project_update_enabled": False,
+                        "dashboard_update_enabled": False,
+                        "dashboard_has_new_version": False,
+                    },
+                ).__dict__
             ret = await self.astrbot_updator.check_update(None, None, False)
             return Response(
                 status="success",
@@ -70,7 +96,11 @@ class UpdateRoute(Route):
                     "version": f"v{VERSION}",
                     "has_new_version": ret is not None,
                     "dashboard_version": dv,
-                    "dashboard_has_new_version": bool(dv and dv != f"v{VERSION}"),
+                    "project_update_enabled": project_update_enabled,
+                    "dashboard_update_enabled": dashboard_update_enabled,
+                    "dashboard_has_new_version": bool(
+                        dashboard_update_enabled and dv and dv != f"v{VERSION}",
+                    ),
                 },
             ).__dict__
         except Exception as e:
@@ -78,6 +108,8 @@ class UpdateRoute(Route):
             return Response().error(e.__str__()).__dict__
 
     async def get_releases(self):
+        if is_containerized_runtime():
+            return Response().ok([]).__dict__
         try:
             ret = await self.astrbot_updator.get_releases()
             return Response().ok(ret).__dict__
@@ -86,6 +118,12 @@ class UpdateRoute(Route):
             return Response().error(e.__str__()).__dict__
 
     async def update_project(self):
+        if is_containerized_runtime():
+            return (
+                Response()
+                .error("容器部署模式下不支持在线更新项目，请通过更新镜像完成升级。")
+                .__dict__
+            )
         data = await request.json
         version = data.get("version", "")
         reboot = data.get("reboot", True)
@@ -137,6 +175,12 @@ class UpdateRoute(Route):
             return Response().error(e.__str__()).__dict__
 
     async def update_dashboard(self):
+        if is_containerized_runtime():
+            return (
+                Response()
+                .error("容器部署模式下不支持在线更新 WebUI，请通过更新镜像完成升级。")
+                .__dict__
+            )
         try:
             try:
                 await download_dashboard(version=f"v{VERSION}", latest=False)

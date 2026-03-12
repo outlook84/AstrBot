@@ -7,7 +7,7 @@
         <p class="text-subtitle-1 text-medium-emphasis">{{ t('list.subtitle') }}</p>
       </div>
       <v-btn icon="mdi-information-outline" variant="text" size="small" color="grey"
-        href="https://astrbot.app/use/knowledge-base.html" target="_blank" />
+        :href="links.knowledgeBaseDocs" target="_blank" />
     </div>
 
     <!-- 操作按钮栏 -->
@@ -201,8 +201,10 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { useModuleI18n } from '@/i18n/composables'
+import { EXTERNAL_LINKS } from '@/utils/externalLinks'
 
 const { tm: t } = useModuleI18n('features/knowledge-base/index')
+const links = EXTERNAL_LINKS
 const router = useRouter()
 
 // 状态

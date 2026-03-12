@@ -16,7 +16,9 @@ from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db import BaseDatabase
 from astrbot.core.db.migration.helper import check_migration_needed_v4
 from astrbot.core.utils.astrbot_path import get_astrbot_path
+from astrbot.core.utils.deployment import is_containerized_runtime
 from astrbot.core.utils.io import get_dashboard_version
+from astrbot.core.utils.project_urls import PROJECT_GITHUB_RAW_MAIN
 from astrbot.core.utils.version_comparator import VersionComparator
 
 from .route import Response, Route, RouteContext
@@ -79,6 +81,9 @@ class StatRoute(Route):
                 {
                     "version": VERSION,
                     "dashboard_version": await get_dashboard_version(),
+                    "containerized": is_containerized_runtime(),
+                    "project_update_enabled": not is_containerized_runtime(),
+                    "dashboard_update_enabled": not is_containerized_runtime(),
                     "change_pwd_hint": self.is_default_cred(),
                     "need_migration": need_migration,
                 },
@@ -169,7 +174,7 @@ class StatRoute(Route):
 
             proxy_url = proxy_url.rstrip("/")
 
-            test_url = f"{proxy_url}/https://github.com/AstrBotDevs/AstrBot/raw/refs/heads/master/.python-version"
+            test_url = f"{proxy_url}/{PROJECT_GITHUB_RAW_MAIN}/.python-version"
             start_time = time.time()
 
             async with (

@@ -28,6 +28,7 @@ from astrbot.core.utils.astrbot_path import (
     get_astrbot_data_path,
     get_astrbot_temp_path,
 )
+from astrbot.core.utils.project_urls import PLUGIN_COLLECTION_CACHE_URL
 
 from .route import Response, Route, RouteContext
 
@@ -244,7 +245,7 @@ class PluginRoute(Route):
             md5_url = "https://api.soulter.top/astrbot/plugins-md5"
             urls = [
                 "https://api.soulter.top/astrbot/plugins",
-                "https://github.com/AstrBotDevs/AstrBot_Plugins_Collection/raw/refs/heads/main/plugin_cache_original.json",
+                PLUGIN_COLLECTION_CACHE_URL,
             ]
         return RegistrySource(urls=urls, cache_file=cache_file, md5_url=md5_url)
 

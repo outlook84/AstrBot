@@ -26,9 +26,9 @@
 
             <div style="margin-left: 16px; padding-bottom: 16px">
                 <small>{{ tm('help.helpPrefix') }}
-                    <a href="https://astrbot.app/" target="_blank">{{ tm('help.documentation') }}</a>
+                    <a :href="links.siteHome" target="_blank">{{ tm('help.documentation') }}</a>
                     {{ tm('help.helpMiddle') }}
-                    <a href="https://qm.qq.com/cgi-bin/qm/qr?k=EYGsuUTfe00_iOu9JTXS7_TEpMkXOvwv&jump_from=webapi&authKey=uUEMKCROfsseS+8IzqPjzV3y1tzy4AkykwTib2jNkOFdzezF9s9XknqnIaf3CDft"
+                    <a :href="links.supportGroup"
                         target="_blank">{{ tm('help.support') }}</a>{{ tm('help.helpSuffix') }}
                 </small>
             </div>
@@ -45,6 +45,7 @@
 <script>
 import AstrBotConfigV4 from '@/components/shared/AstrBotConfigV4.vue';
 import { useModuleI18n } from '@/i18n/composables';
+import { EXTERNAL_LINKS } from '@/utils/externalLinks';
 
 export default {
   name: 'AstrBotCoreConfigWrapper',
@@ -84,7 +85,8 @@ export default {
     };
     
     return {
-      tm
+      tm,
+      links: EXTERNAL_LINKS
     };
   },
   data() {

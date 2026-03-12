@@ -1,6 +1,8 @@
 FROM python:3.12-slim
 WORKDIR /AstrBot
 
+ENV ASTRBOT_CONTAINERIZED=1
+
 COPY . /AstrBot/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

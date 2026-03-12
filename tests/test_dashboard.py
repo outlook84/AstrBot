@@ -314,6 +314,112 @@ async def test_check_update(
 
 
 @pytest.mark.asyncio
+async def test_check_update_hides_dashboard_update_in_container(
+    app: Quart,
+    authenticated_header: dict,
+    core_lifecycle_td: AstrBotCoreLifecycle,
+    monkeypatch,
+):
+    test_client = app.test_client()
+
+    async def mock_check_update(*args, **kwargs):
+        return None
+
+    async def mock_get_dashboard_version(*args, **kwargs):
+        return "v0.0.1"
+
+    monkeypatch.setattr(
+        core_lifecycle_td.astrbot_updator,
+        "check_update",
+        mock_check_update,
+    )
+    monkeypatch.setattr(
+        "astrbot.dashboard.routes.update.get_dashboard_version",
+        mock_get_dashboard_version,
+    )
+    monkeypatch.setattr(
+        "astrbot.dashboard.routes.update.is_containerized_runtime",
+        lambda: True,
+    )
+
+    response = await test_client.get("/api/update/check", headers=authenticated_header)
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["data"]["project_update_enabled"] is False
+    assert data["data"]["has_new_version"] is False
+    assert data["data"]["dashboard_update_enabled"] is False
+    assert data["data"]["dashboard_has_new_version"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_releases_returns_empty_in_container(
+    app: Quart,
+    authenticated_header: dict,
+    monkeypatch,
+):
+    test_client = app.test_client()
+
+    monkeypatch.setattr(
+        "astrbot.dashboard.routes.update.is_containerized_runtime",
+        lambda: True,
+    )
+
+    response = await test_client.get(
+        "/api/update/releases",
+        headers=authenticated_header,
+    )
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["status"] == "ok"
+    assert data["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_update_dashboard_blocked_in_container(
+    app: Quart,
+    authenticated_header: dict,
+    monkeypatch,
+):
+    test_client = app.test_client()
+
+    monkeypatch.setattr(
+        "astrbot.dashboard.routes.update.is_containerized_runtime",
+        lambda: True,
+    )
+
+    response = await test_client.post(
+        "/api/update/dashboard",
+        headers=authenticated_header,
+    )
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_update_project_blocked_in_container(
+    app: Quart,
+    authenticated_header: dict,
+    monkeypatch,
+):
+    test_client = app.test_client()
+
+    monkeypatch.setattr(
+        "astrbot.dashboard.routes.update.is_containerized_runtime",
+        lambda: True,
+    )
+
+    response = await test_client.post(
+        "/api/update/do",
+        headers=authenticated_header,
+        json={"version": "v3.4.0", "reboot": False},
+    )
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["status"] == "error"
+
+
+@pytest.mark.asyncio
 async def test_do_update(
     app: Quart,
     authenticated_header: dict,

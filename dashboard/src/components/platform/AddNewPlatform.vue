@@ -259,7 +259,7 @@
       <v-card-text class="py-4">
         <p>{{ tm('dialog.securityWarning.aiocqhttpTokenMissing') }}</p>
         <span><a
-            href="https://docs.astrbot.app/deploy/platform/aiocqhttp/napcat.html#%E9%99%84%E5%BD%95-%E5%A2%9E%E5%BC%BA%E8%BF%9E%E6%8E%A5%E5%AE%89%E5%85%A8%E6%80%A7"
+            :href="links.napcatSecurityDocs"
             target="_blank">{{ tm('dialog.securityWarning.learnMore') }}</a></span>
       </v-card-text>
       <v-card-actions class="px-4 pb-4">
@@ -307,6 +307,7 @@
 import axios from 'axios';
 import { useModuleI18n } from '@/i18n/composables';
 import { getPlatformIcon, getPlatformDescription, getTutorialLink } from '@/utils/platformUtils';
+import { EXTERNAL_LINKS } from '@/utils/externalLinks';
 import AstrBotConfig from '@/components/shared/AstrBotConfig.vue';
 import AstrBotCoreConfigWrapper from '@/components/config/AstrBotCoreConfigWrapper.vue';
 import ConfigPage from '@/views/ConfigPage.vue';
@@ -386,7 +387,7 @@ export default {
   },
   setup() {
     const { tm } = useModuleI18n('features/platform');
-    return { tm };
+    return { tm, links: EXTERNAL_LINKS };
   },
   computed: {
     showDialog: {

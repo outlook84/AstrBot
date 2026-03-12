@@ -21,10 +21,12 @@ from astrbot.core.utils.astrbot_path import (  # noqa: E402
     get_astrbot_site_packages_path,
     get_astrbot_temp_path,
 )
+from astrbot.core.utils.deployment import is_containerized_runtime  # noqa: E402
 from astrbot.core.utils.io import (  # noqa: E402
     download_dashboard,
     get_dashboard_version,
 )
+from astrbot.core.utils.project_urls import PROJECT_RELEASES_LATEST  # noqa: E402
 
 # 将父目录添加到 sys.path
 sys.path.append(Path(__file__).parent.as_posix())
@@ -74,8 +76,8 @@ async def check_dashboard_files(webui_dir: str | None = None):
             return webui_dir
         logger.warning(f"指定的 WebUI 目录 {webui_dir} 不存在，将使用默认逻辑。")
 
-    data_dist_path = os.path.join(get_astrbot_data_path(), "dist")
-    if os.path.exists(data_dist_path):
+    data_dist_path = Path(get_astrbot_data_path()) / "dist"
+    if data_dist_path.exists():
         v = await get_dashboard_version()
         if v is not None:
             # 存在文件
@@ -85,10 +87,26 @@ async def check_dashboard_files(webui_dir: str | None = None):
                 logger.warning(
                     f"检测到 WebUI 版本 ({v}) 与当前 AstrBot 版本 (v{VERSION}) 不符。",
                 )
-        return data_dist_path
+        return str(data_dist_path)
+
+    bundled_dist_path = (
+        Path(__file__).resolve().parent / "astrbot" / "dashboard" / "dist"
+    )
+    if bundled_dist_path.exists():
+        logger.info(f"使用内置的 WebUI 目录: {bundled_dist_path}")
+        return str(bundled_dist_path)
+
+    if is_containerized_runtime():
+        logger.warning(
+            "当前运行在容器环境中，但未找到可用的 WebUI 静态文件。"
+            "请检查镜像是否包含内置 dist，或通过 --webui-dir / ASTRBOT_WEBUI_DIR 指定外部目录。",
+        )
+        return None
 
     logger.info(
-        "开始下载管理面板文件...高峰期（晚上）可能导致较慢的速度。如多次下载失败，请前往 https://github.com/AstrBotDevs/AstrBot/releases/latest 下载 dist.zip，并将其中的 dist 文件夹解压至 data 目录下。",
+        "开始下载管理面板文件...高峰期（晚上）可能导致较慢的速度。"
+        f"如多次下载失败，请前往 {PROJECT_RELEASES_LATEST} 下载 dist.zip，"
+        "并将其中的 dist 文件夹解压至 data 目录下。",
     )
 
     try:
@@ -98,7 +116,7 @@ async def check_dashboard_files(webui_dir: str | None = None):
         return None
 
     logger.info("管理面板下载完成。")
-    return data_dist_path
+    return str(data_dist_path)
 
 
 async def main_async(webui_dir_arg: str | None) -> None:

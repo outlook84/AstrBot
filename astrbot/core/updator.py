@@ -8,6 +8,7 @@ from astrbot.core import logger
 from astrbot.core.config.default import VERSION
 from astrbot.core.utils.astrbot_path import get_astrbot_path
 from astrbot.core.utils.io import download_file
+from astrbot.core.utils.project_urls import PROJECT_GITHUB_REPO, PROJECT_RELEASE_API
 
 from .zip_updator import ReleaseInfo, RepoZipUpdator
 
@@ -21,7 +22,7 @@ class AstrBotUpdator(RepoZipUpdator):
     def __init__(self, repo_mirror: str = "") -> None:
         super().__init__(repo_mirror)
         self.MAIN_PATH = get_astrbot_path()
-        self.ASTRBOT_RELEASE_API = "https://api.soulter.top/releases"
+        self.ASTRBOT_RELEASE_API = PROJECT_RELEASE_API
 
     def terminate_child_processes(self) -> None:
         """终止当前进程的所有子进程
@@ -168,7 +169,7 @@ class AstrBotUpdator(RepoZipUpdator):
         else:
             if len(str(version)) != 40:
                 raise Exception("commit hash 长度不正确，应为 40")
-            file_url = f"https://github.com/AstrBotDevs/AstrBot/archive/{version}.zip"
+            file_url = f"{PROJECT_GITHUB_REPO}/archive/{version}.zip"
         logger.info(f"准备更新至指定版本的 AstrBot Core: {version}")
 
         if proxy:

@@ -9,9 +9,11 @@ import SkillsSection from "@/components/extension/SkillsSection.vue";
 import ComponentPanel from "@/components/extension/componentPanel/index.vue";
 import InstalledPluginsTab from "./extension/InstalledPluginsTab.vue";
 import MarketPluginsTab from "./extension/MarketPluginsTab.vue";
+import { EXTERNAL_LINKS } from '@/utils/externalLinks';
 import { useExtensionPage } from "./extension/useExtensionPage";
 
 const pageState = useExtensionPage();
+const links = EXTERNAL_LINKS;
 
 const {
   commonStore,
@@ -236,7 +238,7 @@ const {
         <v-btn
           variant="text"
           prepend-icon="mdi-book-open-variant"
-          href="https://astrbot.app/dev/plugin.html"
+          :href="links.pluginDevDocs"
           target="_blank"
           color="primary"
           class="text-none"
@@ -253,7 +255,7 @@ const {
         <v-btn
           variant="text"
           prepend-icon="mdi-github"
-          href="https://github.com/AstrBotDevs/AstrBot_Plugins_Collection"
+          :href="links.pluginCollectionRepo"
           target="_blank"
           color="primary"
           class="text-none"

@@ -19,6 +19,7 @@ import { useLanguageSwitcher } from '@/i18n/composables';
 import type { Locale } from '@/i18n/types';
 import AboutPage from '@/views/AboutPage.vue';
 import { getDesktopRuntimeInfo } from '@/utils/desktopRuntime';
+import { EXTERNAL_LINKS } from '@/utils/externalLinks';
 
 enableKatex();
 enableMermaid();
@@ -42,8 +43,10 @@ let updateStatus = ref('')
 let releaseMessage = ref('');
 let hasNewVersion = ref(false);
 let botCurrVersion = ref('');
+let projectUpdateEnabled = ref(true);
 let dashboardHasNewVersion = ref(false);
 let dashboardCurrentVersion = ref('');
+let dashboardUpdateEnabled = ref(true);
 let version = ref('');
 let releases = ref([]);
 let updatingDashboardLoading = ref(false);
@@ -204,6 +207,9 @@ function handleUpdateClick() {
     void openDesktopUpdateDialog();
     return;
   }
+  if (!projectUpdateEnabled.value) {
+    return;
+  }
   checkUpdate();
   getReleases();
   updateStatusDialog.value = true;
@@ -266,7 +272,9 @@ function getVersion() {
   axios.get('/api/stat/version')
     .then((res) => {
       botCurrVersion.value = "v" + res.data.data.version;
+      projectUpdateEnabled.value = !!res.data.data?.project_update_enabled;
       dashboardCurrentVersion.value = res.data.data?.dashboard_version;
+      dashboardUpdateEnabled.value = !!res.data.data?.dashboard_update_enabled;
       let change_pwd_hint = res.data.data?.change_pwd_hint;
       if (change_pwd_hint) {
         dialog.value = true;
@@ -282,9 +290,16 @@ function getVersion() {
 }
 
 function checkUpdate() {
+  if (!projectUpdateEnabled.value) {
+    hasNewVersion.value = false;
+    dashboardHasNewVersion.value = false;
+    updateStatus.value = '';
+    return;
+  }
   updateStatus.value = t('core.header.updateDialog.status.checking');
   axios.get('/api/update/check')
     .then((res) => {
+      projectUpdateEnabled.value = !!res.data.data.project_update_enabled;
       hasNewVersion.value = res.data.data.has_new_version;
 
       if (res.data.data.has_new_version) {
@@ -295,7 +310,7 @@ function checkUpdate() {
       }
       dashboardHasNewVersion.value = isDesktopReleaseMode.value
         ? false
-        : res.data.data.dashboard_has_new_version;
+        : !!res.data.data.dashboard_update_enabled && res.data.data.dashboard_has_new_version;
     })
     .catch((err) => {
       if (err.response && err.response.status == 401) {
@@ -310,6 +325,10 @@ function checkUpdate() {
 }
 
 function getReleases() {
+  if (!projectUpdateEnabled.value) {
+    releases.value = [];
+    return Promise.resolve();
+  }
   return axios.get('/api/update/releases')
     .then((res) => {
       releases.value = res.data.data.map((item: any) => {
@@ -388,7 +407,6 @@ function handleLogoClick() {
 }
 
 getVersion();
-checkUpdate();
 
 const commonStore = useCommonStore();
 commonStore.createEventSource(); // log
@@ -456,6 +474,12 @@ onMounted(async () => {
   isDesktopReleaseMode.value = runtimeInfo.isDesktopRuntime;
   if (isDesktopReleaseMode.value) {
     dashboardHasNewVersion.value = false;
+    projectUpdateEnabled.value = true;
+    checkUpdate();
+    return;
+  }
+  if (projectUpdateEnabled.value) {
+    checkUpdate();
   }
 });
 
@@ -504,10 +528,10 @@ onMounted(async () => {
 
     <!-- 版本提示信息 - 在手机上隐藏 -->
     <div class="mr-4 hidden-xs">
-      <small v-if="hasNewVersion">
+      <small v-if="projectUpdateEnabled && hasNewVersion">
         {{ t('core.header.version.hasNewVersion') }}
       </small>
-      <small v-else-if="dashboardHasNewVersion && !isDesktopReleaseMode">
+      <small v-else-if="projectUpdateEnabled && dashboardHasNewVersion && dashboardUpdateEnabled && !isDesktopReleaseMode">
         {{ t('core.header.version.dashboardHasNewVersion') }}
       </small>
     </div>
@@ -606,6 +630,7 @@ onMounted(async () => {
 
       <!-- 更新按钮 -->
       <v-list-item
+        v-if="isDesktopReleaseMode || projectUpdateEnabled"
         @click="handleUpdateClick"
         class="styled-menu-item"
         rounded="md"
@@ -614,7 +639,7 @@ onMounted(async () => {
           <v-icon>mdi-arrow-up-circle</v-icon>
         </template>
         <v-list-item-title>{{ t('core.header.updateDialog.title') }}</v-list-item-title>
-        <template v-slot:append v-if="hasNewVersion || (dashboardHasNewVersion && !isDesktopReleaseMode)">
+        <template v-slot:append v-if="projectUpdateEnabled && (hasNewVersion || (dashboardHasNewVersion && dashboardUpdateEnabled && !isDesktopReleaseMode))">
           <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">!</v-chip>
         </template>
       </v-list-item>
@@ -665,7 +690,7 @@ onMounted(async () => {
             <div>
                 <div class="mb-4">
                   <small>{{ t('core.header.updateDialog.dockerTip') }} <a
-                      href="https://containrrr.dev/watchtower/usage-overview/">{{
+                      :href="EXTERNAL_LINKS.watchtowerDocs">{{
                         t('core.header.updateDialog.dockerTipLink')
                       }}</a> {{ t('core.header.updateDialog.dockerTipContinue') }}</small>
                 </div>
@@ -679,7 +704,7 @@ onMounted(async () => {
                     <strong>{{ t('core.header.updateDialog.preReleaseWarning.title') }}</strong>
                     <br>
                     {{ t('core.header.updateDialog.preReleaseWarning.description') }}
-                    <a href="https://github.com/AstrBotDevs/AstrBot/issues" target="_blank" class="text-decoration-none">
+                    <a :href="EXTERNAL_LINKS.githubIssues" target="_blank" class="text-decoration-none">
                       {{ t('core.header.updateDialog.preReleaseWarning.issueLink') }}
                     </a>
                   </div>
@@ -708,8 +733,8 @@ onMounted(async () => {
                 </v-data-table>
             </div>
 
-            <v-divider class="mt-4 mb-4"></v-divider>
-            <div style="margin-top: 16px;">
+            <v-divider v-if="dashboardUpdateEnabled" class="mt-4 mb-4"></v-divider>
+            <div v-if="dashboardUpdateEnabled" style="margin-top: 16px;">
               <h3 class="mb-4">{{ t('core.header.updateDialog.dashboardUpdate.title') }}</h3>
               <div class="mb-4">
                 <small>{{ t('core.header.updateDialog.dashboardUpdate.currentVersion') }} {{ dashboardCurrentVersion

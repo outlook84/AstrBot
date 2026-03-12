@@ -1,3 +1,5 @@
+import { EXTERNAL_LINKS, getPlatformTutorialLink } from './externalLinks';
+
 /**
  * 平台相关工具函数
  */
@@ -45,25 +47,7 @@ export function getPlatformIcon(name) {
  * @returns {string} 教程链接
  */
 export function getTutorialLink(platformType) {
-  const tutorialMap = {
-    "qq_official_webhook": "https://docs.astrbot.app/platform/qqofficial/webhook.html",
-    "qq_official": "https://docs.astrbot.app/platform/qqofficial/websockets.html",
-    "aiocqhttp": "https://docs.astrbot.app/platform/aiocqhttp/napcat.html",
-    "wecom": "https://docs.astrbot.app/platform/wecom.html",
-    "wecom_ai_bot": "https://docs.astrbot.app/platform/wecom_ai_bot.html",
-    "lark": "https://docs.astrbot.app/platform/lark.html",
-    "telegram": "https://docs.astrbot.app/platform/telegram.html",
-    "dingtalk": "https://docs.astrbot.app/platform/dingtalk.html",
-    "weixin_official_account": "https://docs.astrbot.app/platform/weixin-official-account.html",
-    "discord": "https://docs.astrbot.app/platform/discord.html",
-    "slack": "https://docs.astrbot.app/platform/slack.html",
-    "kook": "https://docs.astrbot.app/platform/kook.html",
-    "vocechat": "https://docs.astrbot.app/platform/vocechat.html",
-    "satori": "https://docs.astrbot.app/platform/satori/llonebot.html",
-    "misskey": "https://docs.astrbot.app/platform/misskey.html",
-    "line": "https://docs.astrbot.app/platform/line.html",
-  }
-  return tutorialMap[platformType] || "https://docs.astrbot.app";
+  return getPlatformTutorialLink(platformType) || EXTERNAL_LINKS.docsHome;
 }
 
 /**

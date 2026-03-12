@@ -97,6 +97,7 @@ def test_version_info_comparisons():
 async def test_check_dashboard_files_not_exists(monkeypatch):
     """Tests dashboard download when files do not exist."""
     monkeypatch.setattr(os.path, "exists", lambda x: False)
+    monkeypatch.setattr("main.Path.exists", lambda self: False)
 
     with mock.patch("main.download_dashboard") as mock_download:
         await check_dashboard_files()
@@ -106,8 +107,10 @@ async def test_check_dashboard_files_not_exists(monkeypatch):
 @pytest.mark.asyncio
 async def test_check_dashboard_files_exists_and_version_match(monkeypatch):
     """Tests that dashboard is not downloaded when it exists and version matches."""
-    # Mock os.path.exists to return True
-    monkeypatch.setattr(os.path, "exists", lambda x: True)
+    monkeypatch.setattr(
+        "main.Path.exists",
+        lambda self: str(self).endswith("/data/dist"),
+    )
 
     # Mock get_dashboard_version to return the current version
     with mock.patch("main.get_dashboard_version") as mock_get_version:
@@ -125,7 +128,10 @@ async def test_check_dashboard_files_exists_and_version_match(monkeypatch):
 @pytest.mark.asyncio
 async def test_check_dashboard_files_exists_but_version_mismatch(monkeypatch):
     """Tests that a warning is logged when dashboard version mismatches."""
-    monkeypatch.setattr(os.path, "exists", lambda x: True)
+    monkeypatch.setattr(
+        "main.Path.exists",
+        lambda self: str(self).endswith("/data/dist"),
+    )
 
     with mock.patch("main.get_dashboard_version") as mock_get_version:
         mock_get_version.return_value = "v0.0.1"  # A different version
@@ -147,5 +153,36 @@ async def test_check_dashboard_files_with_webui_dir_arg(monkeypatch):
         with mock.patch("main.get_dashboard_version") as mock_get_version:
             result = await check_dashboard_files(webui_dir=valid_dir)
             assert result == valid_dir
+            mock_download.assert_not_called()
+            mock_get_version.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_dashboard_files_prefers_external_dist_over_bundled(monkeypatch):
+    monkeypatch.setattr(
+        "main.Path.exists",
+        lambda self: str(self).endswith("/data/dist")
+        or str(self).endswith("astrbot/dashboard/dist"),
+    )
+
+    with mock.patch("main.download_dashboard") as mock_download:
+        with mock.patch("main.get_dashboard_version", return_value=None) as mock_get_version:
+            result = await check_dashboard_files()
+            assert result.endswith("/data/dist")
+            mock_download.assert_not_called()
+            mock_get_version.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_check_dashboard_files_falls_back_to_bundled_dist(monkeypatch):
+    monkeypatch.setattr(
+        "main.Path.exists",
+        lambda self: str(self).endswith("astrbot/dashboard/dist"),
+    )
+
+    with mock.patch("main.download_dashboard") as mock_download:
+        with mock.patch("main.get_dashboard_version") as mock_get_version:
+            result = await check_dashboard_files()
+            assert result.endswith("astrbot/dashboard/dist")
             mock_download.assert_not_called()
             mock_get_version.assert_not_called()

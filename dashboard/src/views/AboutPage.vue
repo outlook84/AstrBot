@@ -5,11 +5,11 @@
                 <h1 class="font-weight-bold">{{ tm('hero.title') }}</h1>
                 <p class="text-subtitle-1" style="color: var(--v-theme-secondaryText);">{{ tm('hero.subtitle') }}</p>
                 <div style="margin-top: 20px; display: flex; justify-content: center;">
-                    <v-btn @click="open('https://github.com/AstrBotDevs/AstrBot')" color="primary" variant="tonal" size="small"
+                    <v-btn @click="open(links.githubRepo)" color="primary" variant="tonal" size="small"
                         prepend-icon="mdi-star">
                         {{ tm('hero.starButton') }}
                     </v-btn>
-                    <v-btn class="ml-4" @click="open('https://github.com/AstrBotDevs/AstrBot/issues')" color="secondary" size="small"
+                    <v-btn class="ml-4" @click="open(links.githubIssues)" color="secondary" size="small"
                         variant="tonal" prepend-icon="mdi-comment-question">
                         {{ tm('hero.issueButton') }}
                     </v-btn>
@@ -23,12 +23,13 @@
 <script>
 import { useCustomizerStore } from "@/stores/customizer";
 import { useModuleI18n } from '@/i18n/composables';
+import { EXTERNAL_LINKS } from '@/utils/externalLinks';
 
 export default {
     name: 'AboutPage',
     setup() {
         const { tm } = useModuleI18n('features/about');
-        return { tm };
+        return { tm, links: EXTERNAL_LINKS };
     },
     methods: {
         useCustomizerStore,

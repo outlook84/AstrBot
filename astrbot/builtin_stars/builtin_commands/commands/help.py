@@ -5,6 +5,7 @@ from astrbot.api.event import AstrMessageEvent, MessageEventResult
 from astrbot.core.config.default import VERSION
 from astrbot.core.star import command_management
 from astrbot.core.utils.io import get_dashboard_version
+from astrbot.core.utils.project_urls import PROJECT_NOTICE_JSON
 
 
 class HelpCommand:
@@ -15,7 +16,7 @@ class HelpCommand:
         try:
             async with aiohttp.ClientSession(trust_env=True) as session:
                 async with session.get(
-                    "https://astrbot.app/notice.json",
+                    PROJECT_NOTICE_JSON,
                     timeout=2,
                 ) as resp:
                     return (await resp.json())["notice"]

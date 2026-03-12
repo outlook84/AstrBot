@@ -15,6 +15,7 @@ import psutil
 from PIL import Image
 
 from .astrbot_path import get_astrbot_data_path, get_astrbot_path, get_astrbot_temp_path
+from .project_urls import PROJECT_GITHUB_REPO
 
 logger = logging.getLogger("astrbot")
 
@@ -262,9 +263,13 @@ async def download_dashboard(
             )
         except BaseException as _:
             if latest:
-                dashboard_release_url = "https://github.com/AstrBotDevs/AstrBot/releases/latest/download/dist.zip"
+                dashboard_release_url = (
+                    f"{PROJECT_GITHUB_REPO}/releases/latest/download/dist.zip"
+                )
             else:
-                dashboard_release_url = f"https://github.com/AstrBotDevs/AstrBot/releases/download/{version}/dist.zip"
+                dashboard_release_url = (
+                    f"{PROJECT_GITHUB_REPO}/releases/download/{version}/dist.zip"
+                )
             if proxy:
                 dashboard_release_url = f"{proxy}/{dashboard_release_url}"
             await download_file(
