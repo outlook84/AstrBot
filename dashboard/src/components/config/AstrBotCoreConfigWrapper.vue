@@ -27,9 +27,11 @@
             <div style="margin-left: 16px; padding-bottom: 16px">
                 <small>{{ tm('help.helpPrefix') }}
                     <a :href="links.siteHome" target="_blank">{{ tm('help.documentation') }}</a>
-                    {{ tm('help.helpMiddle') }}
-                    <a :href="links.supportGroup"
-                        target="_blank">{{ tm('help.support') }}</a>{{ tm('help.helpSuffix') }}
+                    <template v-if="!isContainerized">
+                        {{ tm('help.helpMiddle') }}
+                        <a :href="links.supportGroup"
+                            target="_blank">{{ tm('help.support') }}</a>{{ tm('help.helpSuffix') }}
+                    </template>
                 </small>
             </div>
 
@@ -43,6 +45,7 @@
 </template>
 
 <script>
+import axios from 'axios';
 import AstrBotConfigV4 from '@/components/shared/AstrBotConfigV4.vue';
 import { useModuleI18n } from '@/i18n/composables';
 import { EXTERNAL_LINKS } from '@/utils/externalLinks';
@@ -92,7 +95,13 @@ export default {
   data() {
     return {
       tab: null, // 当前激活的配置标签页 key
+      isContainerized: false,
     }
+  },
+  mounted() {
+    const sectionKeys = this.visibleSections.map((section) => section.key);
+    this.tab = sectionKeys[0] ?? null;
+    this.loadRuntimeFlags();
   },
   computed: {
     normalizedSearchKeyword() {
@@ -117,11 +126,15 @@ export default {
       }
     }
   },
-  mounted() {
-    const sectionKeys = this.visibleSections.map((section) => section.key);
-    this.tab = sectionKeys[0] ?? null;
-  },
   methods: {
+    async loadRuntimeFlags() {
+      try {
+        const res = await axios.get('/api/stat/version');
+        this.isContainerized = !!res.data?.data?.containerized;
+      } catch (error) {
+        console.error('Failed to load runtime flags:', error);
+      }
+    },
     sectionHasSearchMatch(section) {
       const keyword = this.normalizedSearchKeyword;
       if (!keyword) {
