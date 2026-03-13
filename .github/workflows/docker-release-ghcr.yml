@@ -1,8 +1,11 @@
 name: Build Release Docker Image to GHCR
 
 on:
-  schedule:
-    - cron: "0 0 * * *"
+  push:
+    branches:
+      - dev
+    paths:
+      - astrbot/cli/__init__.py
   workflow_dispatch:
 
 permissions:
@@ -17,46 +20,72 @@ jobs:
   build-image:
     runs-on: ubuntu-latest
     env:
-      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       GHCR_OWNER: ${{ github.repository_owner }}
       HAS_GHCR_TOKEN: ${{ secrets.GHCR_GITHUB_TOKEN != '' }}
+      VERSION_FILE: astrbot/cli/__init__.py
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Check for new commits in the last 24 hours
-        if: github.event_name == 'schedule'
-        id: check-commits
+      - name: Check version change
+        id: check-version
         shell: bash
         run: |
-          latest_commit_ts="$(git log -1 --format=%ct)"
-          now_ts="$(date +%s)"
-          if [ $((now_ts - latest_commit_ts)) -gt 86400 ]; then
-            echo "No new commits in the last 24 hours, skipping build"
-            echo "has_commits=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Found new commits in the last 24 hours"
-            echo "has_commits=true" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+
+          read_version() {
+            sed -nE 's/^__version__[[:space:]]*=[[:space:]]*"([^"]+)"/\1/p'
+          }
+
+          current_version="$(read_version < "${VERSION_FILE}")"
+          if [ -z "$current_version" ]; then
+            echo "Unable to find __version__ in ${VERSION_FILE}" >&2
+            exit 1
           fi
 
-      - name: Stop scheduled build without new commits
-        if: github.event_name == 'schedule' && steps.check-commits.outputs.has_commits == 'false'
+          echo "tag=$current_version" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          previous_file="$(mktemp)"
+          if git show "${{ github.event.before }}:${VERSION_FILE}" > "$previous_file" 2>/dev/null; then
+            previous_version="$(read_version < "$previous_file")"
+          else
+            previous_version=""
+          fi
+          rm -f "$previous_file"
+
+          if [ "$previous_version" = "$current_version" ]; then
+            echo "Version unchanged, skipping build"
+            echo "version_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version changed from $previous_version to $current_version"
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop build without version change
+        if: steps.check-version.outputs.version_changed == 'false'
         shell: bash
         run: exit 0
 
       - name: Resolve image metadata
-        id: meta
+        id: meta-vars
         shell: bash
         run: |
           short_sha="$(git rev-parse --short=6 HEAD)"
-          build_date="$(date -u +%F)"
           owner_lc="$(echo "${{ env.GHCR_OWNER }}" | tr '[:upper:]' '[:lower:]')"
           echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
-          echo "build_date=$build_date" >> "$GITHUB_OUTPUT"
           echo "image_name=ghcr.io/$owner_lc/astrbot" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
@@ -103,6 +132,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.meta-vars.outputs.image_name }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.check-version.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.check-version.outputs.tag }}
+            type=semver,pattern={{major}},value=${{ steps.check-version.outputs.tag }}
+            type=raw,value=${{ steps.meta-vars.outputs.short_sha }}
+            type=raw,value=latest
+
       - name: Build and push image
         uses: docker/build-push-action@v7
         with:
@@ -110,8 +151,5 @@ jobs:
           file: ./Dockerfile.multistage
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.meta.outputs.image_name }}:latest
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.build_date }}
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.short_sha }}
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.build_date }}-${{ steps.meta.outputs.short_sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

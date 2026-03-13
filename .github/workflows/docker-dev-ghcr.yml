@@ -6,7 +6,7 @@ on:
       branch:
         description: 'Branch to build'
         required: true
-        default: 'dev'
+        default: 'devdev'
 
 permissions:
   contents: read

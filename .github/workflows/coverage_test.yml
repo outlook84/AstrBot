@@ -3,11 +3,12 @@ name: Run tests and upload coverage
 on:
   push:
     branches:
-      - dev
+      - devdev
     paths-ignore:
       - 'README.md'
       - 'changelogs/**'
       - 'dashboard/**'
+      - '.github'
   pull_request:
   workflow_dispatch:
 
