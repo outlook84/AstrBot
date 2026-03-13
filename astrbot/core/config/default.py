@@ -257,7 +257,7 @@ DEFAULT_CONFIG = {
     "persona": [],  # deprecated
     "timezone": "Asia/Shanghai",
     "callback_api_base": "",
-    "default_kb_collection": "",  # 默认知识库名称, 已经过时
+    "default_kb_collection": "",  # deprecated: keep for config compatibility
     "plugin_set": ["*"],  # "*" 表示使用所有可用的插件, 空列表表示不使用任何插件
     "kb_names": [],  # 默认知识库名称列表
     "kb_fusion_top_k": 20,  # 知识库检索融合阶段返回结果数量

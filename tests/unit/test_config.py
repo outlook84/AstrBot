@@ -1,12 +1,13 @@
 """Tests for config module."""
 
+import copy
 import json
 import os
 
 import pytest
 
 from astrbot.core.config.astrbot_config import AstrBotConfig, RateLimitStrategy
-from astrbot.core.config.default import DEFAULT_VALUE_MAP
+from astrbot.core.config.default import DEFAULT_CONFIG, DEFAULT_VALUE_MAP
 from astrbot.core.config.i18n_utils import ConfigMetadataI18n
 
 
@@ -263,6 +264,17 @@ class TestConfigValidation:
         )
 
         assert "unknown_key" not in config
+
+    def test_preserve_default_kb_collection_for_legacy_configs(self, temp_config_path):
+        """Test that legacy knowledge-base config remains on load."""
+        existing_config = copy.deepcopy(DEFAULT_CONFIG)
+        existing_config["default_kb_collection"] = "legacy-kb"
+        with open(temp_config_path, "w", encoding="utf-8-sig") as f:
+            json.dump(existing_config, f)
+
+        config = AstrBotConfig(config_path=temp_config_path, default_config=DEFAULT_CONFIG)
+
+        assert config["default_kb_collection"] == "legacy-kb"
 
     def test_nested_config_validation(self, temp_config_path):
         """Test validation of nested config structures."""
