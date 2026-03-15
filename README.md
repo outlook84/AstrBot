@@ -78,7 +78,7 @@ For users who want to quickly experience AstrBot, are familiar with command-line
 ```bash
 uv tool install astrbot
 astrbot init # Only execute this command for the first time to initialize the environment
-astrbot
+astrbot run
 ```
 
 > Requires [uv](https://docs.astral.sh/uv/) to be installed.
@@ -158,6 +158,7 @@ Connect AstrBot to your favorite chat platform.
 | [Matrix](https://github.com/stevessr/astrbot_plugin_matrix_adapter) | Community |
 | [KOOK](https://github.com/wuyan1003/astrbot_plugin_kook_adapter) | Community |
 | [VoceChat](https://github.com/HikariFroya/astrbot_plugin_vocechat) | Community |
+| [Telethon Userbot](https://github.com/outlook84/astrbot_plugin_telethon_adapter) | Community |
 
 ## Supported Model Services
 

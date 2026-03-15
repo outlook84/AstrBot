@@ -338,9 +338,9 @@ class CronJobManager:
             allow_send_message_tool=allow_send_message_tool,
         )
         req.prompt = (
-            "You are now responding to a scheduled task"
+            "You are now responding to a scheduled task. "
             "Proceed according to your system instructions. "
-            "Output using same language as previous conversation."
+            "Output using same language as previous conversation. "
             "After completing your task, summarize and output your actions and results."
         )
         if allow_send_message_tool:

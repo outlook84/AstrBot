@@ -78,7 +78,7 @@ AstrBot を素早く試したいユーザーで、コマンドラインに慣れ
 ```bash
 uv tool install astrbot
 astrbot init # 初回のみ実行して環境を初期化します
-astrbot
+astrbot run
 ```
 
 > [uv](https://docs.astral.sh/uv/) のインストールが必要です。
@@ -158,6 +158,7 @@ AstrBot をよく使うチャットプラットフォームに接続できます
 | [Matrix](https://github.com/stevessr/astrbot_plugin_matrix_adapter) | コミュニティ |
 | [KOOK](https://github.com/wuyan1003/astrbot_plugin_kook_adapter) | コミュニティ |
 | [VoceChat](https://github.com/HikariFroya/astrbot_plugin_vocechat) | コミュニティ |
+| [Telethon Userbot](https://github.com/outlook84/astrbot_plugin_telethon_adapter) | コミュニティ |
 
 
 ## サポートされているモデルサービス
