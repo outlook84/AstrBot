@@ -3,7 +3,7 @@ name: Build Release Docker Image to GHCR
 on:
   push:
     branches:
-      - dev
+      - release
     paths:
       - astrbot/cli/__init__.py
   workflow_dispatch:
