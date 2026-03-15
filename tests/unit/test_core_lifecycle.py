@@ -279,7 +279,7 @@ class TestAstrBotCoreLifecycleInitialize:
 
         mock_astrbot_config_mgr = MagicMock()
         mock_astrbot_config_mgr.default_conf = {}
-        mock_astrbot_config_mgr.confs = {}
+        mock_astrbot_config_mgr.confs = {"default": MagicMock()}
 
         mock_persona_mgr = MagicMock()
         mock_persona_mgr.initialize = AsyncMock()
@@ -419,7 +419,7 @@ class TestAstrBotCoreLifecycleInitialize:
 
         mock_astrbot_config_mgr = MagicMock()
         mock_astrbot_config_mgr.default_conf = {}
-        mock_astrbot_config_mgr.confs = {}
+        mock_astrbot_config_mgr.confs = {"default": MagicMock()}
 
         # Mock components that need to be created for initialize to continue
         with (
@@ -496,6 +496,325 @@ class TestAstrBotCoreLifecycleInitialize:
 
             # Verify migration error was logged
             mock_logger.error.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_initialize_uses_safe_gather_boundaries(
+        self, mock_log_broker, mock_db, mock_astrbot_config
+    ):
+        """Test that safe startup phases run concurrently without crossing dependency boundaries."""
+        lifecycle = AstrBotCoreLifecycle(mock_log_broker, mock_db)
+
+        events: list[str] = []
+        early_gate = asyncio.Event()
+        phase_two_gate = asyncio.Event()
+
+        async def wait_for_event_markers(markers: set[str]) -> None:
+            for _ in range(50):
+                if markers <= set(events):
+                    return
+                await asyncio.sleep(0.01)
+            raise AssertionError(f"Timed out waiting for event markers: {markers}")
+
+        async def wait_on_gate(label: str, gate: asyncio.Event) -> None:
+            events.append(f"{label}:start")
+            await gate.wait()
+            events.append(f"{label}:end")
+
+        async def init_db() -> None:
+            await wait_on_gate("db", early_gate)
+
+        mock_db.initialize = AsyncMock(side_effect=init_db)
+        mock_html_renderer = MagicMock()
+
+        async def init_html() -> None:
+            await wait_on_gate("html", early_gate)
+
+        mock_html_renderer.initialize = AsyncMock(side_effect=init_html)
+
+        mock_umop_config_router = MagicMock()
+
+        async def init_umop() -> None:
+            await wait_on_gate("umop", early_gate)
+
+        mock_umop_config_router.initialize = AsyncMock(side_effect=init_umop)
+
+        mock_astrbot_config_mgr = MagicMock()
+        mock_astrbot_config_mgr.default_conf = {}
+        mock_astrbot_config_mgr.confs = {"default": MagicMock()}
+
+        mock_persona_mgr = MagicMock()
+        mock_persona_mgr.initialize = AsyncMock(
+            side_effect=lambda: events.append("persona")
+        )
+
+        mock_provider_manager = MagicMock()
+        mock_provider_manager.llm_tools = MagicMock()
+
+        async def init_provider() -> None:
+            await wait_on_gate("provider", phase_two_gate)
+
+        mock_provider_manager.initialize = AsyncMock(side_effect=init_provider)
+
+        mock_platform_manager = MagicMock()
+        mock_platform_manager.initialize = AsyncMock(
+            side_effect=lambda: events.append("platform")
+        )
+
+        mock_conversation_manager = MagicMock()
+        mock_platform_message_history_manager = MagicMock()
+
+        mock_kb_manager = MagicMock()
+
+        async def init_kb() -> None:
+            await wait_on_gate("kb", phase_two_gate)
+
+        mock_kb_manager.initialize = AsyncMock(side_effect=init_kb)
+
+        mock_cron_manager = MagicMock()
+        mock_star_context = MagicMock()
+        mock_star_context._register_tasks = []
+
+        async def plugin_reload() -> None:
+            events.append("plugin")
+
+        mock_plugin_manager = MagicMock()
+        mock_plugin_manager.reload = AsyncMock(side_effect=plugin_reload)
+
+        mock_pipeline_scheduler = MagicMock()
+        mock_pipeline_scheduler.initialize = AsyncMock(
+            side_effect=lambda: events.append("scheduler")
+        )
+
+        mock_astrbot_updator = MagicMock()
+        mock_event_bus = MagicMock()
+
+        with (
+            patch("astrbot.core.core_lifecycle.astrbot_config", mock_astrbot_config),
+            patch("astrbot.core.core_lifecycle.html_renderer", mock_html_renderer),
+            patch(
+                "astrbot.core.core_lifecycle.UmopConfigRouter",
+                return_value=mock_umop_config_router,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.AstrBotConfigManager",
+                return_value=mock_astrbot_config_mgr,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PersonaManager",
+                return_value=mock_persona_mgr,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.ProviderManager",
+                return_value=mock_provider_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PlatformManager",
+                return_value=mock_platform_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.ConversationManager",
+                return_value=mock_conversation_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PlatformMessageHistoryManager",
+                return_value=mock_platform_message_history_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.KnowledgeBaseManager",
+                return_value=mock_kb_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.CronJobManager",
+                return_value=mock_cron_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.Context", return_value=mock_star_context
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PluginManager",
+                return_value=mock_plugin_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PipelineScheduler",
+                return_value=mock_pipeline_scheduler,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.AstrBotUpdator",
+                return_value=mock_astrbot_updator,
+            ),
+            patch("astrbot.core.core_lifecycle.EventBus", return_value=mock_event_bus),
+            patch("astrbot.core.core_lifecycle.migra", new_callable=AsyncMock),
+            patch(
+                "astrbot.core.core_lifecycle.update_llm_metadata",
+                new_callable=AsyncMock,
+            ),
+        ):
+            init_task = asyncio.create_task(lifecycle.initialize())
+
+            await wait_for_event_markers({"db:start", "html:start", "umop:start"})
+            assert {"db:start", "html:start", "umop:start"} <= set(events)
+            assert "persona" not in events
+
+            early_gate.set()
+            await wait_for_event_markers({"plugin", "provider:start", "kb:start"})
+            assert "plugin" in events
+            assert {"provider:start", "kb:start"} <= set(events)
+            assert events.index("plugin") < events.index("provider:start")
+            assert events.index("plugin") < events.index("kb:start")
+            assert "scheduler" not in events
+
+            phase_two_gate.set()
+            await init_task
+
+        assert "scheduler" in events
+        assert events.index("provider:end") < events.index("scheduler")
+        assert events.index("kb:end") < events.index("scheduler")
+        assert events.index("scheduler") < events.index("platform")
+
+    @pytest.mark.asyncio
+    async def test_initialize_cancels_other_early_phase_tasks_on_failure(
+        self, mock_log_broker, mock_db, mock_astrbot_config
+    ):
+        """Test that a failure in the first startup phase cancels sibling tasks."""
+        lifecycle = AstrBotCoreLifecycle(mock_log_broker, mock_db)
+
+        early_started = asyncio.Event()
+        cancelled: list[str] = []
+
+        async def fail_db() -> None:
+            await asyncio.sleep(0)
+            raise RuntimeError("db init failed")
+
+        async def slow_html() -> None:
+            early_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append("html")
+                raise
+
+        async def slow_umop() -> None:
+            early_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append("umop")
+                raise
+
+        mock_db.initialize = AsyncMock(side_effect=fail_db)
+        mock_html_renderer = MagicMock(initialize=AsyncMock(side_effect=slow_html))
+        mock_umop_config_router = MagicMock(initialize=AsyncMock(side_effect=slow_umop))
+
+        with (
+            patch("astrbot.core.core_lifecycle.astrbot_config", mock_astrbot_config),
+            patch("astrbot.core.core_lifecycle.html_renderer", mock_html_renderer),
+            patch(
+                "astrbot.core.core_lifecycle.UmopConfigRouter",
+                return_value=mock_umop_config_router,
+            ),
+        ):
+            with pytest.raises(Exception) as exc_info:
+                await lifecycle.initialize()
+
+        assert "html" in cancelled
+        assert "umop" in cancelled
+        assert "TaskGroup" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_initialize_cancels_other_second_phase_tasks_on_failure(
+        self, mock_log_broker, mock_db, mock_astrbot_config
+    ):
+        """Test that a failure in provider/KB startup cancels its sibling task."""
+        lifecycle = AstrBotCoreLifecycle(mock_log_broker, mock_db)
+
+        mock_db.initialize = AsyncMock()
+        mock_html_renderer = MagicMock(initialize=AsyncMock())
+        mock_umop_config_router = MagicMock(initialize=AsyncMock())
+
+        mock_astrbot_config_mgr = MagicMock()
+        mock_astrbot_config_mgr.default_conf = {}
+        mock_astrbot_config_mgr.confs = {"default": MagicMock()}
+
+        mock_persona_mgr = MagicMock(initialize=AsyncMock())
+
+        async def fail_provider() -> None:
+            await asyncio.sleep(0)
+            raise RuntimeError("provider init failed")
+
+        cancelled: list[str] = []
+
+        async def slow_kb() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append("kb")
+                raise
+
+        mock_provider_manager = MagicMock()
+        mock_provider_manager.llm_tools = MagicMock()
+        mock_provider_manager.initialize = AsyncMock(side_effect=fail_provider)
+
+        mock_platform_manager = MagicMock(initialize=AsyncMock())
+        mock_kb_manager = MagicMock(initialize=AsyncMock(side_effect=slow_kb))
+
+        with (
+            patch("astrbot.core.core_lifecycle.astrbot_config", mock_astrbot_config),
+            patch("astrbot.core.core_lifecycle.html_renderer", mock_html_renderer),
+            patch(
+                "astrbot.core.core_lifecycle.UmopConfigRouter",
+                return_value=mock_umop_config_router,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.AstrBotConfigManager",
+                return_value=mock_astrbot_config_mgr,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PersonaManager",
+                return_value=mock_persona_mgr,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.ProviderManager",
+                return_value=mock_provider_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PlatformManager",
+                return_value=mock_platform_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.ConversationManager",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PlatformMessageHistoryManager",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.KnowledgeBaseManager",
+                return_value=mock_kb_manager,
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.CronJobManager",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.Context",
+                return_value=MagicMock(_register_tasks=[]),
+            ),
+            patch(
+                "astrbot.core.core_lifecycle.PluginManager",
+                return_value=MagicMock(reload=AsyncMock()),
+            ),
+            patch("astrbot.core.core_lifecycle.migra", new_callable=AsyncMock),
+            patch(
+                "astrbot.core.core_lifecycle.update_llm_metadata",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with pytest.raises(Exception) as exc_info:
+                await lifecycle.initialize()
+
+        assert cancelled == ["kb"]
+        assert "TaskGroup" in str(exc_info.value)
 
 
 class TestAstrBotCoreLifecycleStart:
