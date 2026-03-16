@@ -5,7 +5,7 @@ from typing import Any, TypedDict
 
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-VERSION = "4.20.0"
+VERSION = "4.20.1"
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v4.db")
 
 WEBHOOK_SUPPORTED_PLATFORMS = [
@@ -257,7 +257,7 @@ DEFAULT_CONFIG = {
     "persona": [],  # deprecated
     "timezone": "Asia/Shanghai",
     "callback_api_base": "",
-    "default_kb_collection": "",  # 默认知识库名称, 已经过时
+    "default_kb_collection": "",  # deprecated: keep for config compatibility
     "plugin_set": ["*"],  # "*" 表示使用所有可用的插件, 空列表表示不使用任何插件
     "kb_names": [],  # 默认知识库名称列表
     "kb_fusion_top_k": 20,  # 知识库检索融合阶段返回结果数量
@@ -1151,6 +1151,18 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.moonshot.cn/v1",
                         "proxy": "",
                         **_openai_compatible_provider_defaults(),
+                    },
+                    "MiniMax": {
+                        "id": "minimax",
+                        "provider": "minimax",
+                        "type": "openai_chat_completion",
+                        "provider_type": "chat_completion",
+                        "enable": True,
+                        "key": [],
+                        "api_base": "https://api.minimaxi.com/v1",
+                        "timeout": 120,
+                        "proxy": "",
+                        "custom_headers": {},
                     },
                     "xAI": {
                         "id": "xai",
@@ -3623,7 +3635,7 @@ CONFIG_METADATA_3 = {
                         "description": "表情列表（Unicode）",
                         "type": "list",
                         "items": {"type": "string"},
-                        "hint": "Telegram 仅支持固定反应集合，参考：https://gist.github.com/Soulter/3f22c8e5f9c7e152e967e8bc28c97fc9",
+                        "hint": "Telegram 和 Telethon Userbot 共用此配置，且仅支持 Telegram 固定反应集合，参考：https://gist.github.com/Soulter/3f22c8e5f9c7e152e967e8bc28c97fc9",
                         "condition": {
                             "platform_specific.telegram.pre_ack_emoji.enable": True,
                         },

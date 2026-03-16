@@ -113,13 +113,11 @@ class AstrBotCoreLifecycle:
             LogManager.configure_logger(logger, self.astrbot_config)
             LogManager.configure_trace_logger(self.astrbot_config)
 
-        await self.db.initialize()
-
-        await html_renderer.initialize()
-
-        # 初始化 UMOP 配置路由器
         self.umop_config_router = UmopConfigRouter(sp=sp)
-        await self.umop_config_router.initialize()
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self.db.initialize())
+            tg.create_task(html_renderer.initialize())
+            tg.create_task(self.umop_config_router.initialize())
 
         # 初始化 AstrBot 配置管理器
         self.astrbot_config_mgr = AstrBotConfigManager(
@@ -200,10 +198,10 @@ class AstrBotCoreLifecycle:
         # 扫描、注册插件、实例化插件类
         await self.plugin_manager.reload()
 
-        # 根据配置实例化各个 Provider
-        await self.provider_manager.initialize()
-
-        await self.kb_manager.initialize()
+        # 根据配置实例化各个 Provider，并初始化知识库
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self.provider_manager.initialize())
+            tg.create_task(self.kb_manager.initialize())
 
         # 初始化消息事件流水线调度器
         self.pipeline_scheduler_mapping = await self.load_pipeline_scheduler()

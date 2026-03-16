@@ -46,6 +46,7 @@ class KnowledgeBaseManager:
             await self._init_kb_database()
 
             # 初始化检索管理器
+            SparseRetriever.ensure_bm25_dependency_available()
             sparse_retriever = SparseRetriever(self.kb_db)
             rank_fusion = RankFusion(self.kb_db)
             self.retrieval_manager = RetrievalManager(

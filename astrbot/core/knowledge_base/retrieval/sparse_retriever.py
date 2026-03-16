@@ -3,11 +3,10 @@
 使用 BM25 算法进行基于关键词的文档检索
 """
 
+import importlib.util
 import json
 import os
 from dataclasses import dataclass
-
-from rank_bm25 import BM25Okapi
 
 from astrbot.core.knowledge_base.kb_db_sqlite import KBSQLiteDatabase
 
@@ -49,6 +48,11 @@ class SparseRetriever:
             self.hit_stopwords = {
                 word.strip() for word in set(f.read().splitlines()) if word.strip()
             }
+
+    @staticmethod
+    def ensure_bm25_dependency_available() -> None:
+        if importlib.util.find_spec("rank_bm25") is None:
+            raise ImportError("No module named 'rank_bm25'")
 
     async def retrieve(
         self,
@@ -105,6 +109,8 @@ class SparseRetriever:
             [word for word in doc if word not in self.hit_stopwords]
             for doc in tokenized_corpus
         ]
+
+        from rank_bm25 import BM25Okapi
 
         # 3. 构建 BM25 索引
         bm25 = BM25Okapi(tokenized_corpus)

@@ -6,9 +6,13 @@ from collections.abc import AsyncGenerator
 from astrbot.core import logger
 from astrbot.core.message.components import Image, Plain, Record
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.platform.capabilities import PRE_ACK_EMOJI_SUPPORTED_PLATFORMS
 
 from ..context import PipelineContext
 from ..stage import Stage, register_stage
+
+TELEGRAM_PRE_ACK_CONFIG_DEFAULT = {"enable": False, "emojis": ["✍️"]}
+TELEGRAM_PRE_ACK_UNIFIED_PLATFORMS = frozenset({"telegram", "telethon_userbot"})
 
 
 @register_stage
@@ -26,18 +30,12 @@ class PreProcessStage(Stage):
         event: AstrMessageEvent,
     ) -> None | AsyncGenerator[None, None]:
         """在处理事件之前的预处理"""
-        # 平台特异配置：platform_specific.<platform>.pre_ack_emoji
-        supported = {"telegram", "lark", "discord"}
         platform = event.get_platform_name()
-        cfg = (
-            self.config.get("platform_specific", {})
-            .get(platform, {})
-            .get("pre_ack_emoji", {})
-        ) or {}
+        cfg = self._get_pre_ack_emoji_config(platform)
         emojis = cfg.get("emojis") or []
         if (
             cfg.get("enable", False)
-            and platform in supported
+            and platform in PRE_ACK_EMOJI_SUPPORTED_PLATFORMS
             and emojis
             and event.is_at_or_wake_command
         ):
@@ -98,3 +96,22 @@ class PreProcessStage(Stage):
                             logger.error(traceback.format_exc())
                             logger.error(f"语音转文本失败: {e}")
                             break
+
+    def _get_pre_ack_emoji_config(self, platform: str) -> dict:
+        """Resolve pre-ack emoji config, with Telegram shared by telethon_userbot."""
+        platform_specific = self.config.get("platform_specific", {})
+        if platform not in TELEGRAM_PRE_ACK_UNIFIED_PLATFORMS:
+            return platform_specific.get(platform, {}).get("pre_ack_emoji", {}) or {}
+
+        telegram_cfg = (
+            platform_specific.get("telegram", {}).get("pre_ack_emoji", {}) or {}
+        )
+        legacy_cfg = (
+            platform_specific.get("telethon_userbot", {}).get("pre_ack_emoji", {}) or {}
+        )
+        if (
+            telegram_cfg == TELEGRAM_PRE_ACK_CONFIG_DEFAULT
+            and legacy_cfg != TELEGRAM_PRE_ACK_CONFIG_DEFAULT
+        ):
+            return legacy_cfg
+        return telegram_cfg
