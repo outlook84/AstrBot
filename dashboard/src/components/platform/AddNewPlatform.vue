@@ -448,7 +448,9 @@ export default {
   watch: {
     selectedPlatformType(newType) {
       if (newType && this.platformTemplates[newType]) {
-        this.selectedPlatformConfig = JSON.parse(JSON.stringify(this.platformTemplates[newType]));
+        this.selectedPlatformConfig = this.stripRuntimeFields(
+          JSON.parse(JSON.stringify(this.platformTemplates[newType]))
+        );
       } else {
         this.selectedPlatformConfig = null;
       }
@@ -494,6 +496,7 @@ export default {
     updatingPlatformConfig: {
       handler(newConfig) {
         if (this.updatingMode && newConfig && newConfig.id) {
+          this.stripRuntimeFields(newConfig);
           this.originalUpdatingPlatformId = newConfig.id;
           this.getPlatformConfigs(newConfig.id);
         }
@@ -523,6 +526,13 @@ export default {
     }
   },
   methods: {
+    stripRuntimeFields(config) {
+      if (!config || typeof config !== 'object') {
+        return config;
+      }
+      delete config.logo_token;
+      return config;
+    },
     getPlatformIcon(platformType) {
       return resolvePlatformIcon(this.metadata, platformType);
     },
@@ -659,7 +669,7 @@ export default {
         // 更新平台配置
         let resp = await axios.post('/api/config/platform/update', {
           id: id,
-          config: this.updatingPlatformConfig
+          config: this.stripRuntimeFields(this.updatingPlatformConfig)
         })
 
         if (resp.data.status === 'error') {
@@ -709,7 +719,10 @@ export default {
 
       try {
         // 先保存平台配置
-        const res = await axios.post('/api/config/platform/new', this.selectedPlatformConfig);
+        const res = await axios.post(
+          '/api/config/platform/new',
+          this.stripRuntimeFields(this.selectedPlatformConfig)
+        );
 
         // 平台保存成功后，处理配置文件
         await this.handleConfigFile();
