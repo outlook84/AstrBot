@@ -456,10 +456,12 @@ export default {
 
     editPlatform(platform) {
       const platformCopy = JSON.parse(JSON.stringify(platform));
+      delete platformCopy.logo_token;
       const template = this.findPlatformTemplate(platformCopy);
       this.updatingPlatformConfig = template
         ? this.mergeConfigWithTemplate(platformCopy, template)
         : platformCopy;
+      delete this.updatingPlatformConfig.logo_token;
       this.updatingMode = true;
       this.showAddPlatformDialog = true;
       this.$nextTick(() => {
