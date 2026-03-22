@@ -22,6 +22,7 @@ const PLATFORM_DOC_PATHS = {
   qq_official: '/platform/qqofficial/websockets.html',
   aiocqhttp: '/platform/aiocqhttp/napcat.html',
   wecom: '/platform/wecom.html',
+  weixin_oc: '/platform/weixin_oc.html',
   wecom_ai_bot: '/platform/wecom_ai_bot.html',
   lark: '/platform/lark.html',
   telegram: '/platform/telegram.html',
