@@ -137,14 +137,19 @@ def test_sync_skills_uses_managed_strategy_instead_of_wiping_all(
     ]
 
 
-def test_build_scan_command_frontmatter_uses_real_newlines():
+def test_build_scan_command_frontmatter_uses_python_newline_escape():
     command = computer_client._build_scan_command()
     script = _extract_embedded_python(command)
 
-    assert 'frontmatter = "\\\\n".join(lines[1:end_idx])' not in script
+    assert 'frontmatter = "\\n".join(lines[1:end_idx])' in script
 
 
-def test_parse_description_supports_multiline_frontmatter():
+def test_build_scan_command_parse_description_supports_multiline_frontmatter():
+    command = computer_client._build_scan_command()
+    script = _extract_embedded_python(command)
+    namespace = {}
+    exec(compile(script, "<scan_script>", "exec"), namespace)
+
     text = """---
 name: sandbox-skill
 description: multiline description
@@ -153,7 +158,7 @@ author: AstrBot
 # Title
 """
 
-    assert computer_client.parse_description(text) == "multiline description"
+    assert namespace["parse_description"](text) == "multiline description"
 
 
 def test_build_scan_command_embedded_python_is_syntax_valid():
