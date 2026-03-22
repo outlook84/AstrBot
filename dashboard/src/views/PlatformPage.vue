@@ -319,10 +319,10 @@ export default {
   mounted() {
     this.getConfig();
     this.getPlatformStats();
-    // 每 10 秒刷新一次平台状态
+    // 每 5 秒刷新一次平台状态
     this.statsRefreshInterval = setInterval(() => {
       this.getPlatformStats();
-    }, 10000);
+    }, 5000);
     
     // 监听语言切换事件，重新加载配置以获取插件的 i18n 数据
     window.addEventListener('astrbot-locale-changed', this.handleLocaleChange);
@@ -363,8 +363,8 @@ export default {
       });
     },
 
-    getPlatformStats() {
-      axios.get('/api/platform/stats').then((res) => {
+    async getPlatformStats() {
+      await axios.get('/api/platform/stats').then((res) => {
         if (res.data.status === 'ok') {
           // 将数组转换为以 id 为 key 的对象，方便查找
           const stats = {};

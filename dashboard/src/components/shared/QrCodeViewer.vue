@@ -13,6 +13,8 @@
 </template>
 
 <script>
+import QRCode from 'qrcode';
+
 export default {
   name: "QrCodeViewer",
   props: {
@@ -24,25 +26,43 @@ export default {
       type: String,
       default: "QR Code",
     },
+    size: {
+      type: Number,
+      default: 260,
+    },
     emptyHint: {
       type: String,
-      default: "No QR code available",
+      default: "暂无可用二维码",
     },
   },
-  computed: {
-    imageSrc() {
-      const value = String(this.value || "").trim();
+  data() {
+    return {
+      imageSrc: "",
+    };
+  },
+  watch: {
+    value: {
+      immediate: true,
+      handler: "renderQRCode",
+    },
+  },
+  methods: {
+    async renderQRCode(rawValue) {
+      const value = String(rawValue || "").trim();
       if (!value) {
-        return "";
+        this.imageSrc = "";
+        return;
       }
-      if (
-        value.startsWith("http://")
-        || value.startsWith("https://")
-        || value.startsWith("data:image/")
-      ) {
-        return value;
+
+      try {
+        this.imageSrc = await QRCode.toDataURL(value, {
+          margin: 2,
+          width: this.size,
+          errorCorrectionLevel: "M",
+        });
+      } catch {
+        this.imageSrc = "";
       }
-      return "";
     },
   },
 };
