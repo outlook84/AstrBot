@@ -1067,6 +1067,7 @@
       "oa_native_web_search": {
         "description": "启用 OpenAI 原生联网搜索（仅 Responses）",
         "hint": "仅通过 Responses API 生效。启用后将强制使用 /v1/responses，并使用 OpenAI 原生 web_search 工具。chat.completions 不支持该原生工具；开启后 AstrBot 函数工具将被忽略。"
+      },
       "ollama_disable_thinking": {
         "description": "关闭思考模式",
         "hint": "关闭 Ollama 思考模式。"

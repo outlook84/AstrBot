@@ -1071,6 +1071,7 @@
       "oa_native_web_search": {
         "description": "Enable OpenAI native web search (Responses only)",
         "hint": "Only works through the Responses API. When enabled, AstrBot forces /v1/responses and uses OpenAI's native web_search tool. chat.completions does not support this native tool; AstrBot function tools are ignored when it is enabled."
+      },
       "ollama_disable_thinking": {
         "description": "Disable thinking mode",
         "hint": "Close Ollama thinking mode."
