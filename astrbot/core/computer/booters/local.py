@@ -295,31 +295,45 @@ def _build_runtime_env(
     return run_env
 
 
-def _decode_shell_output(output: bytes | str | None) -> str:
+def _decode_bytes_with_fallback(
+    output: bytes | None,
+    *,
+    preferred_encoding: str | None = None,
+) -> str:
     if output is None:
         return ""
     if isinstance(output, str):
         return output
 
     preferred = locale.getpreferredencoding(False) or "utf-8"
-    try:
-        return output.decode("utf-8")
-    except (LookupError, UnicodeDecodeError):
-        pass
+    attempted_encodings: list[str] = []
+
+    def _try_decode(encoding: str) -> str | None:
+        normalized = encoding.lower()
+        if normalized in attempted_encodings:
+            return None
+        attempted_encodings.append(normalized)
+        try:
+            return output.decode(encoding)
+        except (LookupError, UnicodeDecodeError):
+            return None
+
+    for encoding in filter(None, [preferred_encoding, "utf-8", "utf-8-sig"]):
+        if decoded := _try_decode(encoding):
+            return decoded
 
     if os.name == "nt":
-        for encoding in ("mbcs", "cp936", "gbk", "gb18030"):
-            try:
-                return output.decode(encoding)
-            except (LookupError, UnicodeDecodeError):
-                continue
-
-    try:
-        return output.decode(preferred)
-    except (LookupError, UnicodeDecodeError):
-        pass
+        for encoding in ("mbcs", "cp936", "gbk", "gb18030", preferred):
+            if decoded := _try_decode(encoding):
+                return decoded
+    elif decoded := _try_decode(preferred):
+        return decoded
 
     return output.decode("utf-8", errors="replace")
+
+
+def _decode_shell_output(output: bytes | None) -> str:
+    return _decode_bytes_with_fallback(output, preferred_encoding="utf-8")
 
 
 @dataclass
@@ -365,7 +379,7 @@ class LocalShellComponent(ShellComponent):
                 except PermissionError as exc:
                     raise _permission_hint(
                         "Local runtime cannot start shell process",
-                        Path(working_dir),
+                        _native_path(working_dir),
                     ) from exc
                 return {"pid": proc.pid, "stdout": "", "stderr": "", "exit_code": None}
             effective_timeout = (
@@ -386,7 +400,8 @@ class LocalShellComponent(ShellComponent):
                 )
             except PermissionError as exc:
                 raise _permission_hint(
-                    "Local runtime cannot start shell process", Path(working_dir)
+                    "Local runtime cannot start shell process",
+                    _native_path(working_dir),
                 ) from exc
             return {
                 "stdout": _decode_shell_output(result.stdout),
@@ -452,13 +467,15 @@ class LocalPythonComponent(PythonComponent):
 
 @dataclass
 class LocalFileSystemComponent(FileSystemComponent):
-    runtime: LocalRuntimeConfig
+    runtime: LocalRuntimeConfig = field(
+        default_factory=lambda: LocalRuntimeConfig.from_dict({})
+    )
 
     async def create_file(
         self, path: str, content: str = "", mode: int = 0o644
     ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = Path(
+            abs_path = _native_path(
                 _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
             )
             try:
@@ -481,16 +498,20 @@ class LocalFileSystemComponent(FileSystemComponent):
 
     async def read_file(self, path: str, encoding: str = "utf-8") -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = Path(
+            abs_path = _native_path(
                 _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
             )
             try:
-                with abs_path.open(encoding=encoding) as f:
-                    content = f.read()
+                with abs_path.open("rb") as f:
+                    raw_content = f.read()
             except PermissionError as exc:
                 raise _permission_hint(
                     "Local runtime cannot read file", abs_path
                 ) from exc
+            content = _decode_bytes_with_fallback(
+                raw_content,
+                preferred_encoding=encoding,
+            )
             return {"success": True, "content": content}
 
         return await asyncio.to_thread(_run)
@@ -499,7 +520,7 @@ class LocalFileSystemComponent(FileSystemComponent):
         self, path: str, content: str, mode: str = "w", encoding: str = "utf-8"
     ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = Path(
+            abs_path = _native_path(
                 _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
             )
             try:
@@ -521,7 +542,7 @@ class LocalFileSystemComponent(FileSystemComponent):
 
     async def delete_file(self, path: str) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = Path(
+            abs_path = _native_path(
                 _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
             )
             try:
@@ -541,7 +562,7 @@ class LocalFileSystemComponent(FileSystemComponent):
         self, path: str = ".", show_hidden: bool = False
     ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            abs_path = Path(
+            abs_path = _native_path(
                 _ensure_safe_path(path, base_dir=self.runtime.workspace_path)
             )
             try:
@@ -635,7 +656,7 @@ class LocalBooter(ComputerBooter):
             "Local runtime cannot access workspace_path",
             os.R_OK | os.W_OK | os.X_OK,
         )
-        if not Path(self._runtime.python_executable).exists():
+        if not _native_path(self._runtime.python_executable).exists():
             logger.info("Creating local computer venv at %s", self._runtime.venv_path)
             if os.name == "posix" and (
                 self._runtime.uid is not None or self._runtime.gid is not None
@@ -655,7 +676,7 @@ class LocalBooter(ComputerBooter):
                         "Local runtime cannot create venv_path", self._runtime.venv_path
                     ) from exc
         _verify_python_access(
-            Path(self._runtime.python_executable),
+            _native_path(self._runtime.python_executable),
             self._runtime.workspace_path,
             self._runtime.uid,
             self._runtime.gid,
