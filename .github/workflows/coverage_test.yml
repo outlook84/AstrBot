@@ -39,4 +39,3 @@ jobs:
           export TESTING=true
           export ZHIPU_API_KEY=${{ secrets.OPENAI_API_KEY }}
           pytest --cov=astrbot -v -o log_cli=true -o log_level=DEBUG
-
